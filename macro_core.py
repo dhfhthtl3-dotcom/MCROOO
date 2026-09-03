@@ -19,17 +19,7 @@ import sys
 from window_capture import capture_window
 from detector import MultiTargetDetector, TargetItem
 from clicker import dispatch_click, send_hardware_click
-
-
-def get_app_dir() -> str:
-    """
-    실행 파일(.exe)로 패키징된 환경 또는 스크립트 실행 환경에서
-    설정 및 템플릿 이미지를 영구 저장할 실제 프로젝트/앱 디렉토리를 반환합니다.
-    """
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    else:
-        return os.path.dirname(os.path.abspath(__file__))
+from profile_manager import ProfileManager, MacroProfile, get_app_dir
 
 
 class MacroEngine:
@@ -63,6 +53,9 @@ class MacroEngine:
         self.hwnd: Optional[int] = None
         self.detector = MultiTargetDetector()
 
+        # 프로필 관리자 연동
+        self.profile_manager = ProfileManager(base_dir=get_app_dir())
+
         # 전역 매크로 설정
         self.click_mode: str = "hardware"   # "hardware" (SendInput 권장), "activate", "postmessage"
         self.interval: float = 0.4          # 화면 스캔 주기 (초)
@@ -86,7 +79,7 @@ class MacroEngine:
         self.on_log: Optional[Callable[[str], None]] = None
         self.on_status_change: Optional[Callable[[str], None]] = None
 
-        # 저장된 타겟 불러오기
+        # 저장된 타겟 불러오기 (활성 프로필 기준)
         self.load_targets()
 
     def log(self, message: str):
@@ -155,6 +148,57 @@ class MacroEngine:
     def get_all_targets(self) -> List[TargetItem]:
         return self.detector.get_all_targets()
 
+    # ------------------ 프로필 관리 API ------------------
+
+    def get_profile_list(self) -> List[Dict[str, str]]:
+        return self.profile_manager.get_profile_list()
+
+    def get_active_profile(self) -> MacroProfile:
+        return self.profile_manager.get_active_profile()
+
+    def switch_profile(self, profile_id: str) -> bool:
+        if self.is_running:
+            self.stop()
+        p = self.profile_manager.switch_profile(profile_id)
+        if p:
+            self.load_targets()
+            self.log(f"프로필 전환 완료: '{p.name}'")
+            return True
+        return False
+
+    def create_profile(self, name: str) -> MacroProfile:
+        if self.is_running:
+            self.stop()
+        new_p = self.profile_manager.create_profile(name)
+        self.load_targets()
+        self.log(f"새 프로필 생성 및 전환: '{new_p.name}'")
+        return new_p
+
+    def rename_profile(self, profile_id: str, new_name: str) -> bool:
+        success = self.profile_manager.rename_profile(profile_id, new_name)
+        if success:
+            self.log(f"프로필 이름 변경 완료: '{new_name}'")
+        return success
+
+    def duplicate_profile(self, source_id: str, new_name: str) -> Optional[MacroProfile]:
+        if self.is_running:
+            self.stop()
+        new_p = self.profile_manager.duplicate_profile(source_id, new_name)
+        if new_p:
+            self.load_targets()
+            self.log(f"프로필 복제 완료: '{new_p.name}'")
+        return new_p
+
+    def delete_profile(self, profile_id: str) -> bool:
+        if self.is_running:
+            self.stop()
+        success = self.profile_manager.delete_profile(profile_id)
+        if success:
+            self.load_targets()
+            cur = self.profile_manager.get_active_profile()
+            self.log(f"프로필 삭제 완료 -> '{cur.name}'(으)로 전환됨")
+        return success
+
     # ------------------ 저장 및 복원 ------------------
 
     def save_targets(self):
@@ -175,19 +219,42 @@ class MacroEngine:
                 t_dict["image_file"] = img_filename
                 data.append(t_dict)
 
+            # 1. 활성 프로필에 타겟 및 설정 동기화 저장
+            active_p = self.profile_manager.get_active_profile()
+            active_p.targets = data
+            active_p.click_mode = self.click_mode
+            active_p.global_offset_x = self.global_offset_x
+            active_p.global_offset_y = self.global_offset_y
+            active_p.interval = self.interval
+            self.profile_manager.save_active_profile()
+
+            # 2. 하위 호환성을 위해 DATA_FILE(targets_config.json)도 함께 갱신
             with open(self.DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             self.log(f"타겟 저장 실패: {e}")
 
     def load_targets(self):
-        if not os.path.exists(self.DATA_FILE):
-            return
+        self.detector.clear_targets()
+
+        # 커스텀 데이터 파일이 지정된 경우 (테스트 코드 등)
+        if self._custom_data_file and os.path.exists(self._custom_data_file):
+            try:
+                with open(self._custom_data_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                self.log(f"커스텀 타겟 파일 로드 에러: {e}")
+                data = []
+        else:
+            # 프로필 기반 타겟 로드
+            active_p = self.profile_manager.get_active_profile()
+            self.click_mode = active_p.click_mode
+            self.global_offset_x = active_p.global_offset_x
+            self.global_offset_y = active_p.global_offset_y
+            self.interval = active_p.interval
+            data = active_p.targets
 
         try:
-            with open(self.DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
             for item in data:
                 img_path = os.path.join(self.TEMPLATES_DIR, item.get("image_file", ""))
                 if os.path.exists(img_path):
@@ -210,7 +277,7 @@ class MacroEngine:
                             base_height=item.get("base_height", 0)
                         )
                         self.detector.add_target(target)
-            self.log(f"이전 등록된 타겟 {len(data)}개를 성공적으로 불러왔습니다.")
+            self.log(f"타겟 {len(self.detector.targets)}개를 성공적으로 불러왔습니다. (프로필: '{self.profile_manager.get_active_profile().name}')")
         except Exception as e:
             self.log(f"타겟 불러오기 실패: {e}")
 

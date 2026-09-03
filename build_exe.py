@@ -27,6 +27,7 @@ def build():
         "--hidden-import", "cv2",
         "--hidden-import", "numpy",
         "--hidden-import", "PIL",
+        "--hidden-import", "profile_manager",
         "main_gui.py"
     ]
     
@@ -37,16 +38,26 @@ def build():
         dist_exe = os.path.abspath(os.path.join("dist", "GameMacro.exe"))
         print(f"생성된 실행 파일: {dist_exe}")
         
-        # templates 및 targets_config.json을 dist 폴더에도 복사하여 바로 사용 가능하도록 준비
+        # templates, targets_config.json, profiles 폴더를 dist 폴더에도 동기화하여 바로 사용 가능하도록 준비
         dist_templates = os.path.join("dist", "templates")
         dist_cfg = os.path.join("dist", "targets_config.json")
+        dist_profiles = os.path.join("dist", "profiles")
         
-        if os.path.exists("templates") and not os.path.exists(dist_templates):
+        if os.path.exists("templates"):
+            if os.path.exists(dist_templates):
+                shutil.rmtree(dist_templates)
             shutil.copytree("templates", dist_templates)
-            print("기존 templates 폴더를 dist/ 에 복사했습니다.")
-        if os.path.exists("targets_config.json") and not os.path.exists(dist_cfg):
+            print("templates 폴더를 dist/ 에 복사했습니다.")
+
+        if os.path.exists("targets_config.json"):
             shutil.copy2("targets_config.json", dist_cfg)
-            print("기존 targets_config.json 파일을 dist/ 에 복사했습니다.")
+            print("targets_config.json 파일을 dist/ 에 복사했습니다.")
+
+        if os.path.exists("profiles"):
+            if os.path.exists(dist_profiles):
+                shutil.rmtree(dist_profiles)
+            shutil.copytree("profiles", dist_profiles)
+            print("profiles 폴더를 dist/ 에 복사했습니다.")
     else:
         print(f"\n❌ 빌드 실패 (코드: {res.returncode})")
 

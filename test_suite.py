@@ -174,6 +174,91 @@ class TestMultiTargetSuite(unittest.TestCase):
         self.assertAlmostEqual(dets_08x[0]["scale"], 0.8, delta=0.1)
 
 
+class TestProfileManagerSuite(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = "test_profile_env"
+        os.makedirs(self.test_dir, exist_ok=True)
+
+    def tearDown(self):
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_profile_creation_and_switching(self):
+        """새 프로필 생성 및 전환 검증"""
+        from profile_manager import ProfileManager
+        pm = ProfileManager(base_dir=self.test_dir)
+        
+        # 초기 상태: 1개 프로필 (default)
+        self.assertEqual(len(pm.get_profile_list()), 1)
+        self.assertEqual(pm.get_active_profile().name, "기본 매크로")
+
+        # 새 프로필 생성
+        p2 = pm.create_profile("에픽세븐 토벌")
+        self.assertEqual(len(pm.get_profile_list()), 2)
+        self.assertEqual(pm.active_profile_id, p2.id)
+        self.assertEqual(pm.get_active_profile().name, "에픽세븐 토벌")
+
+        # 프로필 전환
+        pm.switch_profile("default")
+        self.assertEqual(pm.get_active_profile().name, "기본 매크로")
+
+    def test_profile_duplicate_and_rename(self):
+        """프로필 복제 및 이름 변경 검증"""
+        from profile_manager import ProfileManager
+        pm = ProfileManager(base_dir=self.test_dir)
+        
+        # 타겟 추가
+        cur = pm.get_active_profile()
+        cur.targets = [{"id": "btn1", "name": "시작"}]
+        pm.save_active_profile()
+
+        # 복제
+        p_copy = pm.duplicate_profile(cur.id, "기본 매크로 복제본")
+        self.assertIsNotNone(p_copy)
+        self.assertEqual(p_copy.name, "기본 매크로 복제본")
+        self.assertEqual(len(p_copy.targets), 1)
+        self.assertEqual(p_copy.targets[0]["name"], "시작")
+
+        # 이름 변경
+        pm.rename_profile(p_copy.id, "새이름")
+        self.assertEqual(pm.get_active_profile().name, "새이름")
+
+    def test_profile_delete_protection(self):
+        """프로필 삭제 시 최소 1개 유지 및 삭제 검증"""
+        from profile_manager import ProfileManager
+        pm = ProfileManager(base_dir=self.test_dir)
+        
+        # 프로필이 1개일 때 삭제 시도 -> 실패해야 함
+        self.assertFalse(pm.delete_profile("default"))
+        self.assertEqual(len(pm.get_profile_list()), 1)
+
+        # 2개로 만든 후 삭제
+        p2 = pm.create_profile("임시 프로필")
+        self.assertEqual(len(pm.get_profile_list()), 2)
+        self.assertTrue(pm.delete_profile(p2.id))
+        self.assertEqual(len(pm.get_profile_list()), 1)
+
+    def test_legacy_migration(self):
+        """기존 targets_config.json 데이터가 있을 때 첫 실행 시 자동 마이그레이션 검증"""
+        import json
+        from profile_manager import ProfileManager
+
+        legacy_path = os.path.join(self.test_dir, "targets_config.json")
+        sample_targets = [
+            {"id": "t1", "name": "기존버튼1", "threshold": 0.85},
+            {"id": "t2", "name": "기존버튼2", "threshold": 0.90}
+        ]
+        with open(legacy_path, "w", encoding="utf-8") as f:
+            json.dump(sample_targets, f)
+
+        pm = ProfileManager(base_dir=self.test_dir)
+        active = pm.get_active_profile()
+        self.assertEqual(len(active.targets), 2)
+        self.assertEqual(active.targets[0]["name"], "기존버튼1")
+        self.assertEqual(active.targets[1]["name"], "기존버튼2")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

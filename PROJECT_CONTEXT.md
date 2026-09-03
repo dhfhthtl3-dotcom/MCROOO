@@ -56,3 +56,10 @@
   - 로컬 릴리즈 즉시 배포 패키지 생성: `release/GameMacro-v2.1.0-windows-x64.zip` (포터블 무설치 패키지).
   - GitHub Actions 워크플로우 구축: `.github/workflows/release.yml` (태그 푸시 시 클라우드 자동 빌드 및 릴리즈 첨부 자동화).
   - Git 로컬 저장소 초기화(`git init -b main`), 1차 릴리즈 커밋 및 태그(`v2.1.0`) 생성 완료.
+- **다중 매크로 독립 프로필 시스템 (Multi-Profile System) 완성 (v2.2)**:
+  - `profile_manager.py` 모듈 구축: 각 매크로별 독립적인 타겟 버튼 목록, 클릭 모드, 오프셋, 스캔 주기, 대상 창 제목을 `profiles/<id>.json`으로 분리 저장.
+  - GUI 최상단에 프로필 제어 바 신설: ComboBox 드롭다운 선택, `[➕ 새 매크로]`, `[✏️ 이름 변경]`, `[💾 복제]`, `[🗑️ 삭제]` 인터페이스 완비.
+  - 기존 `targets_config.json`의 타겟 4개를 "기본 매크로"로 자동 마이그레이션하여 데이터 무손실 보장.
+  - 프로필 전환 시 대상 윈도우 창 자동 복원 및 설정 즉시 동기화.
+  - `test_suite.py` 내 4개 프로필 단위 테스트 추가 및 전체 9개 테스트 통과 (`ALL PASS`).
+  - `GameMacro.exe` 재빌드 및 `release/GameMacro-v2.1.0-windows-x64.zip` 최신 배포본 생성 완료.

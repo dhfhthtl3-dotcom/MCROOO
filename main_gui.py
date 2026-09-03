@@ -277,6 +277,7 @@ class MacroApp(ctk.CTk):
         self.windows_data = []
         self.last_frame: Optional[np.ndarray] = None
         self.target_cards = {}
+        self._profile_map: Dict[str, str] = {}
 
         # 엔진 콜백 연결
         self.engine.on_log = self.append_log
@@ -284,18 +285,19 @@ class MacroApp(ctk.CTk):
         self.engine.on_status_change = self.on_status_updated
 
         self.setup_ui()
+        self.refresh_profile_list()
         self.refresh_window_list()
         self.render_target_list()
 
     def setup_ui(self):
         # 1. 최상단 헤더 바
-        header = ctk.CTkFrame(self, height=52, corner_radius=0, fg_color="#181824")
+        header = ctk.CTkFrame(self, height=50, corner_radius=0, fg_color="#181824")
         header.pack(fill="x", side="top")
 
         ctk.CTkLabel(
             header,
-            text="🎯 Multi-Button Frame Detector & Hybrid Clicker",
-            font=ctk.CTkFont(size=18, weight="bold")
+            text="🎯 Multi-Button Frame Detector & Hybrid Clicker v2.1",
+            font=ctk.CTkFont(size=17, weight="bold")
         ).pack(side="left", padx=20, pady=10)
 
         self.status_badge = ctk.CTkLabel(
@@ -323,6 +325,72 @@ class MacroApp(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold")
         )
         self.admin_badge.pack(side="right", padx=(0, 8), pady=10)
+
+        # 1-1. 매크로 프로필 제어 바
+        profile_bar = ctk.CTkFrame(self, height=44, corner_radius=0, fg_color="#202030")
+        profile_bar.pack(fill="x", side="top", pady=(1, 0))
+
+        ctk.CTkLabel(
+            profile_bar,
+            text="📋 매크로 프로필:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="left", padx=(20, 8), pady=6)
+
+        # 프로필 선택 콤보박스
+        self.profile_combo_var = ctk.StringVar()
+        self.profile_combo = ctk.CTkComboBox(
+            profile_bar,
+            variable=self.profile_combo_var,
+            width=240,
+            height=30,
+            command=self.on_profile_selected
+        )
+        self.profile_combo.pack(side="left", padx=4, pady=6)
+
+        # 프로필 관리 버튼들
+        ctk.CTkButton(
+            profile_bar,
+            text="➕ 새 매크로",
+            width=90,
+            height=28,
+            fg_color="#3498db",
+            hover_color="#2980b9",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_create_profile_dialog
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkButton(
+            profile_bar,
+            text="✏️ 이름 변경",
+            width=85,
+            height=28,
+            fg_color="#444455",
+            hover_color="#555566",
+            font=ctk.CTkFont(size=12),
+            command=self.on_rename_profile_dialog
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkButton(
+            profile_bar,
+            text="💾 복제",
+            width=65,
+            height=28,
+            fg_color="#444455",
+            hover_color="#555566",
+            font=ctk.CTkFont(size=12),
+            command=self.on_duplicate_profile_dialog
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkButton(
+            profile_bar,
+            text="🗑️ 삭제",
+            width=65,
+            height=28,
+            fg_color="#c0392b",
+            hover_color="#962d22",
+            font=ctk.CTkFont(size=12),
+            command=self.on_delete_profile_confirm
+        ).pack(side="left", padx=4, pady=6)
 
         # 2. 메인 3컬럼 레이아웃
         main_layout = ctk.CTkFrame(self, fg_color="transparent")
@@ -522,6 +590,113 @@ class MacroApp(ctk.CTk):
 
         self.log_textbox = ctk.CTkTextbox(col3, height=180, font=ctk.CTkFont(family="Consolas", size=11))
         self.log_textbox.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+    # ------------------ 프로필 관리 이벤트 ------------------
+
+    def refresh_profile_list(self):
+        profiles = self.engine.get_profile_list()
+        self._profile_map = {p["name"]: p["id"] for p in profiles}
+        names = [p["name"] for p in profiles]
+        self.profile_combo.configure(values=names)
+
+        active_p = self.engine.get_active_profile()
+        self.profile_combo_var.set(active_p.name)
+
+    def on_profile_selected(self, selected_name: str):
+        if not selected_name:
+            return
+        p_id = self._profile_map.get(selected_name)
+        if not p_id or p_id == self.engine.get_active_profile().id:
+            return
+
+        if self.engine.is_running:
+            if not messagebox.askyesno("매크로 실행 중", "프로필을 전환하면 현재 실행 중인 매크로가 정지됩니다. 계속하시겠습니까?"):
+                self.profile_combo_var.set(self.engine.get_active_profile().name)
+                return
+            self.stop_macro()
+
+        success = self.engine.switch_profile(p_id)
+        if success:
+            # 프로필 설정값 GUI에 동기화
+            self.click_mode_var.set(self.engine.click_mode)
+            self.offset_y_var.set(str(self.engine.global_offset_y))
+            self.render_target_list()
+            self.refresh_profile_list()
+            self.append_log(f"📋 매크로 전환: '{selected_name}' (등록 타겟 {len(self.engine.get_all_targets())}개)")
+
+            # 해당 프로필에 저장된 윈도우 제목이 있고 현재 창 목록에 있으면 자동 선택
+            active_p = self.engine.get_active_profile()
+            if active_p.target_window_title:
+                for idx, w in enumerate(self.windows_data):
+                    if active_p.target_window_title in w["title"]:
+                        sel_str = f"[{w['hwnd']}] {w['title'][:32]} ({w['width']}x{w['height']})"
+                        self.win_combobox.set(sel_str)
+                        self.engine.set_target_window(w['hwnd'])
+                        self.append_log(f"타겟 창 자동 복원: {w['title']}")
+                        break
+
+    def on_create_profile_dialog(self):
+        dialog = ctk.CTkInputDialog(
+            text="새로 생성할 매크로 이름을 입력하세요:\n(예: 에픽세븐 토벌, 로스트아크 일퀘)",
+            title="새 매크로 생성"
+        )
+        name = dialog.get_input()
+        if name and name.strip():
+            clean_name = name.strip()
+            if clean_name in self._profile_map:
+                messagebox.showwarning("경고", "이미 동일한 이름의 매크로가 존재합니다.")
+                return
+
+            new_p = self.engine.create_profile(clean_name)
+            self.refresh_profile_list()
+            self.render_target_list()
+            self.append_log(f"✨ 새 매크로 생성 완료: '{new_p.name}'")
+
+    def on_rename_profile_dialog(self):
+        cur_p = self.engine.get_active_profile()
+        dialog = ctk.CTkInputDialog(
+            text=f"'{cur_p.name}'의 새 이름을 입력하세요:",
+            title="매크로 이름 변경"
+        )
+        new_name = dialog.get_input()
+        if new_name and new_name.strip():
+            clean_name = new_name.strip()
+            if clean_name == cur_p.name:
+                return
+            if clean_name in self._profile_map:
+                messagebox.showwarning("경고", "이미 동일한 이름의 매크로가 존재합니다.")
+                return
+
+            self.engine.rename_profile(cur_p.id, clean_name)
+            self.refresh_profile_list()
+            self.append_log(f"✏️ 매크로 이름 변경: '{cur_p.name}' -> '{clean_name}'")
+
+    def on_duplicate_profile_dialog(self):
+        cur_p = self.engine.get_active_profile()
+        dialog = ctk.CTkInputDialog(
+            text=f"'{cur_p.name}'을(를) 복제할 새 매크로 이름:",
+            title="매크로 복제"
+        )
+        new_name = dialog.get_input()
+        if new_name and new_name.strip():
+            clean_name = new_name.strip()
+            new_p = self.engine.duplicate_profile(cur_p.id, clean_name)
+            if new_p:
+                self.refresh_profile_list()
+                self.render_target_list()
+                self.append_log(f"💾 매크로 복제 완료: '{new_p.name}' (타겟 {len(self.engine.get_all_targets())}개 복사됨)")
+
+    def on_delete_profile_confirm(self):
+        cur_p = self.engine.get_active_profile()
+        if len(self.engine.get_profile_list()) <= 1:
+            messagebox.showwarning("경고", "최소 1개의 매크로 프로필은 남아있어야 합니다.")
+            return
+
+        if messagebox.askyesno("삭제 확인", f"정말로 '{cur_p.name}' 매크로를 삭제하시겠습니까?\n(등록된 버튼 목록도 함께 삭제됩니다)"):
+            self.engine.delete_profile(cur_p.id)
+            self.refresh_profile_list()
+            self.render_target_list()
+            self.append_log(f"🗑️ 매크로 삭제 완료. 활성 매크로: '{self.engine.get_active_profile().name}'")
 
     # ------------------ 타겟 카드 렌더링 ------------------
 
@@ -736,9 +911,19 @@ class MacroApp(ctk.CTk):
         if not titles:
             titles = ["실행 중인 창을 찾을 수 없습니다."]
         self.win_combobox.configure(values=titles)
-        self.win_combobox.set(titles[0])
+
+        # 활성 프로필에 기억된 창 제목이 있다면 우선 매칭
+        active_p = self.engine.get_active_profile()
+        target_idx = 0
+        if active_p.target_window_title and self.windows_data:
+            for idx, w in enumerate(self.windows_data):
+                if active_p.target_window_title in w['title']:
+                    target_idx = idx
+                    break
+
+        self.win_combobox.set(titles[target_idx])
         if self.windows_data:
-            self.on_window_selected(titles[0])
+            self.on_window_selected(titles[target_idx])
         self.append_log(f"윈도우 목록 갱신 완료 ({len(self.windows_data)}개)")
 
     def on_window_selected(self, choice_str):
@@ -746,6 +931,9 @@ class MacroApp(ctk.CTk):
             key = f"[{w['hwnd']}]"
             if choice_str.startswith(key):
                 self.engine.set_target_window(w['hwnd'])
+                active_p = self.engine.get_active_profile()
+                active_p.target_window_title = w['title']
+                self.engine.profile_manager.save_active_profile()
                 self.append_log(f"타겟 창 지정: {w['title']} (HWND: {w['hwnd']})")
                 return
 

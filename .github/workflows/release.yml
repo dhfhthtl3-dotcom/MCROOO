@@ -45,7 +45,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "package/GameMacro"
           Copy-Item "dist/GameMacro.exe" -Destination "package/GameMacro/"
           Copy-Item "templates" -Destination "package/GameMacro/" -Recurse
-          Copy-Item "targets_config.json" -Destination "package/GameMacro/"
+          Copy-Item "profiles" -Destination "package/GameMacro/" -Recurse -ErrorAction SilentlyContinue
+          Copy-Item "targets_config.json" -Destination "package/GameMacro/" -ErrorAction SilentlyContinue
           Copy-Item "README.md" -Destination "package/GameMacro/"
           Copy-Item "LICENSE" -Destination "package/GameMacro/"
           
