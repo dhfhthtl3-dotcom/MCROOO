@@ -46,7 +46,7 @@ class MacroEngine:
     def TEMPLATES_DIR(self, path: str):
         self._custom_templates_dir = path
 
-    def __init__(self):
+    def __init__(self, profile_manager: Optional[ProfileManager] = None):
         self._custom_data_file: Optional[str] = None
         self._custom_templates_dir: Optional[str] = None
 
@@ -54,7 +54,7 @@ class MacroEngine:
         self.detector = MultiTargetDetector()
 
         # 프로필 관리자 연동
-        self.profile_manager = ProfileManager(base_dir=get_app_dir())
+        self.profile_manager = profile_manager or ProfileManager(base_dir=get_app_dir())
 
         # 전역 매크로 설정
         self.click_mode: str = "hardware"   # "hardware" (SendInput 권장), "activate", "postmessage"

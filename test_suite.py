@@ -107,11 +107,15 @@ class TestMultiTargetSuite(unittest.TestCase):
 
     def test_targets_persistence(self):
         """타겟 등록 후 디스크에 저장 및 재로딩 검증"""
-        test_dir = "test_templates"
-        test_cfg = "test_targets.json"
+        from profile_manager import ProfileManager
+        test_dir = "test_persistence_env"
+        os.makedirs(test_dir, exist_ok=True)
+        test_templates = os.path.join(test_dir, "templates")
+        test_cfg = os.path.join(test_dir, "targets_config.json")
 
-        engine = MacroEngine()
-        engine.TEMPLATES_DIR = test_dir
+        pm = ProfileManager(base_dir=test_dir)
+        engine = MacroEngine(profile_manager=pm)
+        engine.TEMPLATES_DIR = test_templates
         engine.DATA_FILE = test_cfg
         engine.detector.clear_targets()
 
@@ -120,11 +124,12 @@ class TestMultiTargetSuite(unittest.TestCase):
             target2 = engine.add_target("테스트버튼2", self.btn_go_img, threshold=0.92, priority=2)
 
             self.assertTrue(os.path.exists(test_cfg))
-            self.assertTrue(os.path.exists(test_dir))
+            self.assertTrue(os.path.exists(test_templates))
 
             # 새 엔진 인스턴스로 로딩 확인
-            engine2 = MacroEngine()
-            engine2.TEMPLATES_DIR = test_dir
+            pm2 = ProfileManager(base_dir=test_dir)
+            engine2 = MacroEngine(profile_manager=pm2)
+            engine2.TEMPLATES_DIR = test_templates
             engine2.DATA_FILE = test_cfg
             engine2.detector.clear_targets()
             engine2.load_targets()
@@ -136,8 +141,8 @@ class TestMultiTargetSuite(unittest.TestCase):
             self.assertEqual(loaded[1].name, "테스트버튼2")
             self.assertEqual(loaded[1].threshold, 0.92)
         finally:
-            if os.path.exists(test_cfg):
-                os.remove(test_cfg)
+            if os.path.exists(test_dir):
+                shutil.rmtree(test_dir, ignore_errors=True)
     def test_resolution_scaling_detection(self):
         """화면 해상도가 1.5배로 확대되거나 0.75배로 축소되어도 정상 감지되는지 검증"""
         detector = MultiTargetDetector()

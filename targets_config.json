@@ -10,6 +10,8 @@
     "enabled": true,
     "w": 138,
     "h": 50,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_e9d05461.png"
   },
   {
@@ -23,6 +25,8 @@
     "enabled": true,
     "w": 233,
     "h": 38,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_39981e15.png"
   },
   {
@@ -36,6 +40,8 @@
     "enabled": true,
     "w": 141,
     "h": 69,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_beba6f1b.png"
   },
   {
@@ -49,6 +55,8 @@
     "enabled": true,
     "w": 224,
     "h": 51,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_8fcb16ce.png"
   },
   {
@@ -62,6 +70,8 @@
     "enabled": true,
     "w": 126,
     "h": 31,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_5cc2365e.png"
   },
   {
@@ -75,6 +85,8 @@
     "enabled": true,
     "w": 229,
     "h": 80,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_3dba8da0.png"
   },
   {
@@ -88,6 +100,8 @@
     "enabled": true,
     "w": 152,
     "h": 34,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_2206f431.png"
   },
   {
@@ -101,6 +115,8 @@
     "enabled": true,
     "w": 111,
     "h": 47,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_fa540501.png"
   },
   {
@@ -114,6 +130,8 @@
     "enabled": true,
     "w": 87,
     "h": 37,
+    "base_width": 0,
+    "base_height": 0,
     "image_file": "target_e51828eb.png"
   }
 ]
