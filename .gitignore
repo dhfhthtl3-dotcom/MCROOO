@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+*.spec
+
+# PyInstaller dist and release zips
+dist/
+release/
+test_templates/
+test_targets.json
+
+# Logs & Temporary debug captures
+*.log
+*.png
+!templates/*.png
+!docs/*.png
+!assets/*.png
+
+# IDE & OS
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
