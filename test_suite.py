@@ -8,6 +8,7 @@
 """
 
 import os
+import json
 import shutil
 import unittest
 import numpy as np
@@ -258,7 +259,107 @@ class TestProfileManagerSuite(unittest.TestCase):
         self.assertEqual(active.targets[1]["name"], "기존버튼2")
 
 
+class TestMacroPackageSecuritySuite(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = "test_sec_env"
+        self.templates_dir = os.path.join(self.test_dir, "templates")
+        os.makedirs(self.templates_dir, exist_ok=True)
+
+        # 유효한 테스트용 버튼 이미지 생성
+        self.test_img = np.full((30, 40, 3), (100, 150, 200), dtype=np.uint8)
+        self.img_path = os.path.join(self.templates_dir, "target_t1.png")
+        is_ok, buf = cv2.imencode(".png", self.test_img)
+        with open(self.img_path, "wb") as f:
+            f.write(buf)
+
+    def tearDown(self):
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_valid_export_and_import(self):
+        """정상 .gmac 패키지의 내보내기 및 4단계 보안 검사, 안전한 가져오기 검증"""
+        from profile_manager import MacroProfile, ProfileManager
+        from macro_package import export_macro_package, inspect_and_verify_package, import_macro_package
+
+        profile = MacroProfile(
+            profile_id="p1",
+            name="정상 매크로",
+            target_window_title="에픽세븐",
+            targets=[{
+                "id": "t1",
+                "name": "전투준비",
+                "image_file": "target_t1.png",
+                "threshold": 0.85,
+                "priority": 1,
+                "cooldown": 2.0
+            }]
+        )
+
+        pkg_path = os.path.join(self.test_dir, "test_valid.gmac")
+        export_macro_package(profile, self.templates_dir, pkg_path)
+        self.assertTrue(os.path.exists(pkg_path))
+
+        # 보안 검사
+        res = inspect_and_verify_package(pkg_path)
+        self.assertTrue(res["is_safe"], f"검증 실패 사유: {res['errors']}")
+        self.assertEqual(res["meta"]["name"], "정상 매크로")
+        self.assertIn("t1", res["images"])
+
+        # 가져오기
+        pm = ProfileManager(base_dir=self.test_dir)
+        ok, msg, new_p = import_macro_package(pkg_path, pm, self.templates_dir, custom_name="가져온 에픽세븐")
+        self.assertTrue(ok)
+        self.assertEqual(new_p.name, "가져온 에픽세븐")
+
+    def test_dangerous_script_rejection(self):
+        """악성 스크립트(.bat, .exe)가 삽입된 패키지는 100% 탐지되어 차단되는지 검증"""
+        import zipfile
+        from macro_package import inspect_and_verify_package
+
+        bad_pkg = os.path.join(self.test_dir, "malicious.gmac")
+        with zipfile.ZipFile(bad_pkg, "w") as zf:
+            zf.writestr("macro_meta.json", json.dumps({"targets": []}))
+            zf.writestr("malicious_hack.bat", "@echo off\necho attack")
+
+        res = inspect_and_verify_package(bad_pkg)
+        self.assertFalse(res["is_safe"], "악성 스크립트가 감지되어 차단되어야 합니다.")
+        self.assertTrue(any("위험한 실행 파일" in err for err in res["errors"]))
+
+    def test_zip_slip_rejection(self):
+        """상위 경로 탈출(Zip Slip, ../) 조작이 즉시 탐지되어 차단되는지 검증"""
+        import zipfile
+        from macro_package import inspect_and_verify_package
+
+        bad_pkg = os.path.join(self.test_dir, "zip_slip.gmac")
+        with zipfile.ZipFile(bad_pkg, "w") as zf:
+            zf.writestr("macro_meta.json", json.dumps({"targets": []}))
+            zf.writestr("../../Windows/System32/evil.png", b"fake")
+
+        res = inspect_and_verify_package(bad_pkg)
+        self.assertFalse(res["is_safe"], "경로 조작 시도가 차단되어야 합니다.")
+        self.assertTrue(any("경로 조작" in err for err in res["errors"]))
+
+    def test_dangerous_window_target_rejection(self):
+        """작업 관리자, 레지스트리 편집기 등 시스템 창을 조작하려는 매크로 차단 검증"""
+        from profile_manager import MacroProfile
+        from macro_package import export_macro_package, inspect_and_verify_package
+
+        profile = MacroProfile(
+            profile_id="p_bad",
+            name="위험한 매크로",
+            target_window_title="작업 관리자 (Task Manager)",
+            targets=[]
+        )
+        pkg_path = os.path.join(self.test_dir, "bad_window.gmac")
+        export_macro_package(profile, self.templates_dir, pkg_path)
+
+        res = inspect_and_verify_package(pkg_path)
+        self.assertFalse(res["is_safe"], "시스템 창 제어 시도는 차단되어야 합니다.")
+        self.assertTrue(any("시스템/보안 프로그램 창" in err for err in res["errors"]))
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

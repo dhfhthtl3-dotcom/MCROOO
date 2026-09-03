@@ -20,6 +20,7 @@ from window_capture import get_window_list, capture_window
 from detector import MultiTargetDetector, TargetItem
 from clicker import dispatch_click
 from macro_core import MacroEngine
+from macro_package import export_macro_package, inspect_and_verify_package, import_macro_package
 
 import ctypes
 
@@ -265,6 +266,161 @@ class AddTargetDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class ImportVerifyDialog(ctk.CTkToplevel):
+    """
+    매크로 패키지(.gmac) 4단계 보안 검증 및 시각적 미리보기 대화상자
+    - 악성 스크립트/경로 조작 자동 차단 결과 시각화
+    - 포함된 버튼 템플릿 썸네일과 이름, 일치율을 눈으로 직접 확인 후 승인
+    """
+    def __init__(self, parent, package_path: str, on_import_success):
+        super().__init__(parent)
+        self.title("🛡️ 매크로 패키지 보안 검증 및 가져오기")
+        self.geometry("580x680")
+        self.attributes("-topmost", True)
+        self.resizable(False, False)
+
+        self.package_path = package_path
+        self.on_import_success = on_import_success
+        self.thumb_refs = []
+
+        # 4단계 보안 검사 수행
+        self.verify_result = inspect_and_verify_package(package_path)
+        self.setup_ui()
+
+    def setup_ui(self):
+        # 상단 타이틀
+        ctk.CTkLabel(
+            self,
+            text="🛡️ 매크로 패키지 보안 검증 보고서",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(pady=(16, 6))
+
+        # 보안 상태 배너
+        if self.verify_result["is_safe"]:
+            status_banner = ctk.CTkFrame(self, fg_color="#1e4620", corner_radius=8)
+            status_banner.pack(fill="x", padx=20, pady=6)
+            ctk.CTkLabel(
+                status_banner,
+                text="✅ 보안 검증 통과: 악성 스크립트 없음 / 안전한 매크로 확인됨",
+                text_color="#2ecc71",
+                font=ctk.CTkFont(size=13, weight="bold")
+            ).pack(padx=12, pady=10)
+        else:
+            status_banner = ctk.CTkFrame(self, fg_color="#4d1b1b", corner_radius=8)
+            status_banner.pack(fill="x", padx=20, pady=6)
+            ctk.CTkLabel(
+                status_banner,
+                text="🚨 보안 경고: 위험한 요소가 감지되어 등록이 차단되었습니다!",
+                text_color="#e74c3c",
+                font=ctk.CTkFont(size=13, weight="bold")
+            ).pack(padx=12, pady=8)
+
+            err_text = "\n".join([f"• {e}" for e in self.verify_result["errors"]])
+            err_box = ctk.CTkTextbox(self, height=100, fg_color="#2b1414", text_color="#ff7979", font=ctk.CTkFont(size=12))
+            err_box.insert("1.0", err_text)
+            err_box.configure(state="disabled")
+            err_box.pack(fill="x", padx=20, pady=8)
+
+            ctk.CTkButton(self, text="닫기", width=120, command=self.destroy).pack(pady=15)
+            return
+
+        meta = self.verify_result["meta"]
+        images = self.verify_result["images"]
+        targets = meta.get("targets", [])
+
+        # 프로필 요약 정보 프레임
+        summary_frame = ctk.CTkFrame(self, fg_color="#252535", corner_radius=8)
+        summary_frame.pack(fill="x", padx=20, pady=6)
+
+        # 프로필 이름 입력
+        name_row = ctk.CTkFrame(summary_frame, fg_color="transparent")
+        name_row.pack(fill="x", padx=14, pady=(10, 4))
+        ctk.CTkLabel(name_row, text="매크로 이름:", width=90, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        self.name_entry = ctk.CTkEntry(name_row, height=28)
+        self.name_entry.insert(0, meta.get("name", "가져온 매크로"))
+        self.name_entry.pack(side="left", fill="x", expand=True)
+
+        # 메타 태그 요약
+        info_row = ctk.CTkFrame(summary_frame, fg_color="transparent")
+        info_row.pack(fill="x", padx=14, pady=(4, 10))
+        target_win = meta.get("target_window_title") or "미지정"
+        click_m = meta.get("click_mode", "hardware").upper()
+        ctk.CTkLabel(
+            info_row,
+            text=f"🎯 대상 창: {target_win}  |  ⚡ 모드: {click_m}  |  버튼: {len(targets)}개",
+            text_color="#aaaabb",
+            font=ctk.CTkFont(size=12)
+        ).pack(side="left")
+
+        # 버튼 미리보기 섹션 라벨
+        ctk.CTkLabel(
+            self,
+            text="👁️ 포함된 버튼 템플릿 실물 검증 (썸네일 확인):",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w"
+        ).pack(fill="x", padx=22, pady=(10, 4))
+
+        # 버튼 스크롤 리스트
+        scroll = ctk.CTkScrollableFrame(self, height=260, fg_color="#181822")
+        scroll.pack(fill="both", expand=True, padx=20, pady=4)
+
+        if not targets:
+            ctk.CTkLabel(scroll, text="포함된 버튼이 없습니다.", text_color="gray").pack(pady=30)
+        else:
+            for t in targets:
+                card = ctk.CTkFrame(scroll, fg_color="#222230", corner_radius=6)
+                card.pack(fill="x", pady=4, padx=4)
+
+                t_id = t.get("id")
+                if t_id in images:
+                    img_bgr = images[t_id]
+                    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(img_rgb)
+                    th = 32
+                    tw = int(pil_img.width * (th / pil_img.height))
+                    pil_thumb = pil_img.resize((max(1, tw), th), Image.Resampling.LANCZOS)
+                    ctk_thumb = ctk.CTkImage(light_image=pil_thumb, dark_image=pil_thumb, size=(tw, th))
+                    self.thumb_refs.append(ctk_thumb)
+                    ctk.CTkLabel(card, image=ctk_thumb, text="").pack(side="left", padx=8, pady=6)
+
+                t_info = ctk.CTkFrame(card, fg_color="transparent")
+                t_info.pack(side="left", fill="both", expand=True, padx=6)
+                ctk.CTkLabel(t_info, text=t.get("name", "버튼"), font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(fill="x")
+                thresh = int(t.get("threshold", 0.85) * 100)
+                cd = t.get("cooldown", 2.0)
+                res_info = f" | {t.get('base_width')}x{t.get('base_height')}" if t.get('base_width', 0) > 0 else ""
+                ctk.CTkLabel(t_info, text=f"일치율: {thresh}% | 쿨다운: {cd}초{res_info}", font=ctk.CTkFont(size=11), text_color="gray", anchor="w").pack(fill="x")
+
+        # 하단 액션 버튼
+        btn_bar = ctk.CTkFrame(self, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=20, pady=16)
+
+        ctk.CTkButton(
+            btn_bar,
+            text="취소",
+            width=100,
+            height=36,
+            fg_color="#555566",
+            hover_color="#666677",
+            command=self.destroy
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btn_bar,
+            text="✅ 안전 확인 및 매크로 등록하기",
+            height=36,
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.confirm_import
+        ).pack(side="right", fill="x", expand=True, padx=(10, 0))
+
+    def confirm_import(self):
+        new_name = self.name_entry.get().strip()
+        self.on_import_success(self.package_path, new_name)
+        self.destroy()
+
+
 class MacroApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -390,6 +546,30 @@ class MacroApp(ctk.CTk):
             hover_color="#962d22",
             font=ctk.CTkFont(size=12),
             command=self.on_delete_profile_confirm
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkLabel(profile_bar, text="|", text_color="#555566").pack(side="left", padx=6, pady=6)
+
+        ctk.CTkButton(
+            profile_bar,
+            text="📤 내보내기",
+            width=85,
+            height=28,
+            fg_color="#8e44ad",
+            hover_color="#732d91",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_export_package
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkButton(
+            profile_bar,
+            text="📥 가져오기",
+            width=85,
+            height=28,
+            fg_color="#27ae60",
+            hover_color="#1e8449",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_import_package
         ).pack(side="left", padx=4, pady=6)
 
         # 2. 메인 3컬럼 레이아웃
@@ -697,6 +877,55 @@ class MacroApp(ctk.CTk):
             self.refresh_profile_list()
             self.render_target_list()
             self.append_log(f"🗑️ 매크로 삭제 완료. 활성 매크로: '{self.engine.get_active_profile().name}'")
+
+    def on_export_package(self):
+        cur_p = self.engine.get_active_profile()
+        default_filename = f"{cur_p.name}.gmac".replace(" ", "_")
+        save_path = filedialog.asksaveasfilename(
+            title="매크로 안전 공유 패키지 내보내기",
+            initialfile=default_filename,
+            defaultextension=".gmac",
+            filetypes=[("GameMacro Package", "*.gmac"), ("All Files", "*.*")]
+        )
+        if save_path:
+            try:
+                export_macro_package(cur_p, self.engine.TEMPLATES_DIR, save_path)
+                messagebox.showinfo(
+                    "내보내기 성공",
+                    f"매크로가 안전한 단일 패키지(.gmac)로 내보내졌습니다!\n\n"
+                    f"저장 파일: {os.path.basename(save_path)}\n"
+                    f"포함 버튼: {len(cur_p.targets)}개\n\n"
+                    "이 파일 하나만 다른 분에게 전송하시면 상대방도 바로 사용할 수 있습니다."
+                )
+                self.append_log(f"📤 매크로 패키지 내보내기 성공: {os.path.basename(save_path)}")
+            except Exception as e:
+                messagebox.showerror("내보내기 실패", f"파일 생성 중 오류가 발생했습니다:\n{e}")
+
+    def on_import_package(self):
+        open_path = filedialog.askopenfilename(
+            title="매크로 패키지(.gmac) 가져오기",
+            filetypes=[("GameMacro Package", "*.gmac"), ("All Files", "*.*")]
+        )
+        if open_path:
+            ImportVerifyDialog(self, open_path, on_import_success=self.perform_import)
+
+    def perform_import(self, package_path: str, custom_name: str):
+        success, msg, new_profile = import_macro_package(
+            package_filepath=package_path,
+            profile_manager=self.engine.profile_manager,
+            templates_dir=self.engine.TEMPLATES_DIR,
+            custom_name=custom_name
+        )
+        if success and new_profile:
+            self.engine.switch_profile(new_profile.id)
+            self.refresh_profile_list()
+            self.render_target_list()
+            self.click_mode_var.set(self.engine.click_mode)
+            self.offset_y_var.set(str(self.engine.global_offset_y))
+            messagebox.showinfo("가져오기 완료", f"'{new_profile.name}' 매크로가 안전하게 등록되었습니다!\n(버튼 {len(new_profile.targets)}개 로드됨)")
+            self.append_log(f"📥 {msg}")
+        else:
+            messagebox.showerror("가져오기 실패", msg)
 
     # ------------------ 타겟 카드 렌더링 ------------------
 

@@ -28,6 +28,8 @@ def build():
         "--hidden-import", "numpy",
         "--hidden-import", "PIL",
         "--hidden-import", "profile_manager",
+        "--hidden-import", "macro_package",
+        "--hidden-import", "zipfile",
         "main_gui.py"
     ]
     

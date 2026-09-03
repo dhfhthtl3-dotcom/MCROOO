@@ -8,7 +8,7 @@
   "target_window_title": "에픽세븐",
   "targets": [
     {
-      "id": "20e903c3",
+      "id": "e0659297",
       "name": "테스트버튼1",
       "threshold": 0.88,
       "priority": 1,
@@ -20,10 +20,10 @@
       "h": 30,
       "base_width": 0,
       "base_height": 0,
-      "image_file": "target_20e903c3.png"
+      "image_file": "target_e0659297.png"
     },
     {
-      "id": "e91340c5",
+      "id": "0941edd7",
       "name": "테스트버튼2",
       "threshold": 0.92,
       "priority": 2,
@@ -35,7 +35,7 @@
       "h": 30,
       "base_width": 0,
       "base_height": 0,
-      "image_file": "target_e91340c5.png"
+      "image_file": "target_0941edd7.png"
     }
   ]
 }
