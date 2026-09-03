@@ -51,3 +51,8 @@
   - `get_app_dir()` 유틸리티를 통해 `.exe` 실행 파일이 위치한 실제 디렉토리에 `templates/` 폴더와 `targets_config.json`을 영구 보관.
   - 임시 폴더 삭제로 인한 데이터 유실을 원천 방지하고, 단일 실행 파일과 설정 폴더만으로 완벽한 이동성(Portability) 확보.
   - PyInstaller 기반 `--onefile`, `--windowed`(콘솔 숨김), `--uac-admin`(관리자 권한 매니페스트) 단일 패키징 구축.
+- **오픈소스 패키징 및 GitHub 자동 릴리즈(CI/CD) 파이프라인 완성 (v2.1.0)**:
+  - 오픈소스 표준 문서 작성 완료: `README.md` (고품질 프로젝트 가이드 및 면책조항), `LICENSE` (MIT), `.gitignore`, `requirements.txt`.
+  - 로컬 릴리즈 즉시 배포 패키지 생성: `release/GameMacro-v2.1.0-windows-x64.zip` (포터블 무설치 패키지).
+  - GitHub Actions 워크플로우 구축: `.github/workflows/release.yml` (태그 푸시 시 클라우드 자동 빌드 및 릴리즈 첨부 자동화).
+  - Git 로컬 저장소 초기화(`git init -b main`), 1차 릴리즈 커밋 및 태그(`v2.1.0`) 생성 완료.
