@@ -1,13 +1,15 @@
-# 🎮 GameMacro (게임 매크로 v2.1)
+# 🎮 GameMacro (게임 매크로 v2.3)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com)
+[![Release](https://img.shields.io/badge/Release-v2.3.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.3.0/GameMacro-v2.3.0-windows-x64.zip)
 
-> **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지 및 하이브리드 클릭 자동화 도구**
+> **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 4단계 보안 검증 공유 패키지 및 하이브리드 자동 클릭 도구**
 
-GameMacro는 복잡한 스크립트 작성 없이, 게임이나 애플리케이션 창에서 원하는 버튼 영역을 드래그 캡처하여 등록해 두면 화면에 나타날 때마다 우선순위와 쿨다운에 맞춰 정밀하게 클릭해 주는 지능형 자동화 프로그램입니다.
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.3.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.3.0/GameMacro-v2.3.0-windows-x64.zip)
+*파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
 
