@@ -73,6 +73,13 @@ class MacroEngine:
         self.global_offset_x: int = 0
         self.global_offset_y: int = 0
 
+        # 화면 연속 탭 (오토클릭) 설정
+        self.auto_tap_enabled: bool = False
+        self.auto_tap_interval: float = 0.5
+        self.auto_tap_point: Optional[Tuple[int, int]] = None  # None이면 창 정중앙
+        self.auto_tap_mode: str = "when_idle"  # "when_idle" (버튼 없을 때만), "always" (항상)
+        self.last_auto_tap_time: float = 0.0
+
         # UI 연동 콜백
         self.on_frame_update: Optional[Callable[[np.ndarray, List[Dict[str, Any]]], None]] = None
         self.on_click_performed: Optional[Callable[[str, int, int, float], None]] = None
@@ -81,6 +88,17 @@ class MacroEngine:
 
         # 저장된 타겟 불러오기 (활성 프로필 기준)
         self.load_targets()
+
+    def update_target_offset(self, target_id: str, offset_x: int, offset_y: int) -> bool:
+        """타겟의 개별 상대 클릭 오프셋 업데이트"""
+        for t in self.detector.targets:
+            if t.id == target_id:
+                t.offset_x = offset_x
+                t.offset_y = offset_y
+                self.save_targets()
+                self.log(f"타겟 '{t.name}' 클릭 오프셋 변경: ({offset_x:+d}px, {offset_y:+d}px)")
+                return True
+        return False
 
     def log(self, message: str):
         print(f"[Macro] {message}")
@@ -226,6 +244,11 @@ class MacroEngine:
             active_p.global_offset_x = self.global_offset_x
             active_p.global_offset_y = self.global_offset_y
             active_p.interval = self.interval
+            active_p.auto_tap_enabled = self.auto_tap_enabled
+            active_p.auto_tap_interval = self.auto_tap_interval
+            active_p.auto_tap_x = self.auto_tap_point[0] if self.auto_tap_point else -1
+            active_p.auto_tap_y = self.auto_tap_point[1] if self.auto_tap_point else -1
+            active_p.auto_tap_mode = self.auto_tap_mode
             self.profile_manager.save_active_profile()
 
             # 2. 하위 호환성을 위해 DATA_FILE(targets_config.json)도 함께 갱신
@@ -252,6 +275,13 @@ class MacroEngine:
             self.global_offset_x = active_p.global_offset_x
             self.global_offset_y = active_p.global_offset_y
             self.interval = active_p.interval
+            self.auto_tap_enabled = active_p.auto_tap_enabled
+            self.auto_tap_interval = active_p.auto_tap_interval
+            if active_p.auto_tap_x >= 0 and active_p.auto_tap_y >= 0:
+                self.auto_tap_point = (active_p.auto_tap_x, active_p.auto_tap_y)
+            else:
+                self.auto_tap_point = None
+            self.auto_tap_mode = active_p.auto_tap_mode
             data = active_p.targets
 
         try:
@@ -292,8 +322,8 @@ class MacroEngine:
             return False
 
         active_targets = [t for t in self.detector.get_all_targets() if t.enabled]
-        if not active_targets:
-            self.log("활성화된 감지 버튼(타겟)이 없습니다. 버튼을 등록하거나 활성화하세요.")
+        if not active_targets and not self.auto_tap_enabled:
+            self.log("활성화된 감지 버튼(타겟)이 없고, 화면 연속 탭도 비활성화되어 있습니다.")
             return False
 
         self.is_running = True
@@ -306,7 +336,8 @@ class MacroEngine:
 
         if self.on_status_change:
             self.on_status_change("동작 중")
-        self.log(f"매크로 시작! (모드: {self.click_mode.upper()}, 활성 타겟: {len(active_targets)}개)")
+        autotap_tag = f", 화면연속탭: {'ON' if self.auto_tap_enabled else 'OFF'}"
+        self.log(f"매크로 시작! (모드: {self.click_mode.upper()}, 활성 타겟: {len(active_targets)}개{autotap_tag})")
         return True
 
     def stop(self):
@@ -362,6 +393,8 @@ class MacroEngine:
 
                 # 3. 감지된 타겟 순차 검사 (우선순위 순서)
                 now = time.time()
+                clicked_target = False
+
                 for det in detections:
                     target: TargetItem = det["target"]
                     
@@ -385,14 +418,50 @@ class MacroEngine:
                         if success:
                             target.last_click_time = now
                             self.total_clicks += 1
+                            clicked_target = True
+                            offset_str = f" [오프셋 {target.offset_x:+d},{target.offset_y:+d}]" if (target.offset_x != 0 or target.offset_y != 0) else ""
                             self.log(
-                                f"🎯 [{target.name}] 감지({conf_pct:.1f}%) -> ({click_x}, {click_y}) 클릭 성공! [누적 {self.total_clicks}회]"
+                                f"🎯 [{target.name}] 감지({conf_pct:.1f}%) -> ({click_x}, {click_y}) 클릭 성공!{offset_str} [누적 {self.total_clicks}회]"
                             )
                             if self.on_click_performed:
                                 self.on_click_performed(target.name, click_x, click_y, det["confidence"])
 
                             # 단일 사이클 당 1회 클릭 후 루프 갱신 (화면 상태 변화 대기)
                             break
+
+                # 4. 화면 연속 탭 (오토클릭) 처리
+                if self.auto_tap_enabled:
+                    should_tap = False
+                    if self.auto_tap_mode == "when_idle" and not clicked_target:
+                        if now - self.last_auto_tap_time >= self.auto_tap_interval:
+                            should_tap = True
+                    elif self.auto_tap_mode == "always":
+                        if now - self.last_auto_tap_time >= self.auto_tap_interval:
+                            should_tap = True
+
+                    if should_tap:
+                        if self.auto_tap_point:
+                            tap_x, tap_y = self.auto_tap_point
+                        else:
+                            fh, fw = frame.shape[:2]
+                            tap_x, tap_y = fw // 2, fh // 2
+
+                        actual_tap_x = tap_x + self.global_offset_x
+                        actual_tap_y = tap_y + self.global_offset_y
+
+                        tap_success = dispatch_click(
+                            self.hwnd,
+                            actual_tap_x,
+                            actual_tap_y,
+                            mode=self.click_mode,
+                            jitter=self.jitter
+                        )
+                        if tap_success:
+                            self.last_auto_tap_time = now
+                            self.total_clicks += 1
+                            self.log(
+                                f"🔄 [화면 연타] ({actual_tap_x}, {actual_tap_y}) 탭 수행 [누적 {self.total_clicks}회]"
+                            )
 
                 # 최대 클릭 제한 검사
                 if 0 < self.max_clicks <= self.total_clicks:

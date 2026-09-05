@@ -30,7 +30,12 @@ class MacroProfile:
         global_offset_y: int = 0,
         interval: float = 0.4,
         target_window_title: str = "",
-        targets: Optional[List[Dict[str, Any]]] = None
+        targets: Optional[List[Dict[str, Any]]] = None,
+        auto_tap_enabled: bool = False,
+        auto_tap_interval: float = 0.5,
+        auto_tap_x: int = -1,
+        auto_tap_y: int = -1,
+        auto_tap_mode: str = "when_idle"
     ):
         self.id = profile_id
         self.name = name
@@ -40,6 +45,11 @@ class MacroProfile:
         self.interval = interval
         self.target_window_title = target_window_title
         self.targets: List[Dict[str, Any]] = targets if targets is not None else []
+        self.auto_tap_enabled = auto_tap_enabled
+        self.auto_tap_interval = auto_tap_interval
+        self.auto_tap_x = auto_tap_x
+        self.auto_tap_y = auto_tap_y
+        self.auto_tap_mode = auto_tap_mode
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -50,7 +60,12 @@ class MacroProfile:
             "global_offset_y": self.global_offset_y,
             "interval": self.interval,
             "target_window_title": self.target_window_title,
-            "targets": self.targets
+            "targets": self.targets,
+            "auto_tap_enabled": self.auto_tap_enabled,
+            "auto_tap_interval": self.auto_tap_interval,
+            "auto_tap_x": self.auto_tap_x,
+            "auto_tap_y": self.auto_tap_y,
+            "auto_tap_mode": self.auto_tap_mode
         }
 
     @classmethod
@@ -63,7 +78,12 @@ class MacroProfile:
             global_offset_y=data.get("global_offset_y", 0),
             interval=data.get("interval", 0.4),
             target_window_title=data.get("target_window_title", ""),
-            targets=data.get("targets", [])
+            targets=data.get("targets", []),
+            auto_tap_enabled=data.get("auto_tap_enabled", False),
+            auto_tap_interval=data.get("auto_tap_interval", 0.5),
+            auto_tap_x=data.get("auto_tap_x", -1),
+            auto_tap_y=data.get("auto_tap_y", -1),
+            auto_tap_mode=data.get("auto_tap_mode", "when_idle")
         )
 
 

@@ -1,14 +1,14 @@
-# 🎮 GameMacro (게임 매크로 v2.3)
+# 🎮 GameMacro (게임 매크로 v2.4)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.3.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
-[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.3.0/GameMacro-v2.3.0-windows-x64.zip)
+[![Release](https://img.shields.io/badge/Release-v2.4.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.0/GameMacro-v2.4.0-windows-x64.zip)
 
 > **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 4단계 보안 검증 공유 패키지 및 하이브리드 자동 클릭 도구**
 
-### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.3.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.3.0/GameMacro-v2.3.0-windows-x64.zip)
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.0/GameMacro-v2.4.0-windows-x64.zip)
 *파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
@@ -36,7 +36,18 @@
 - 윈도우 디스플레이 배율(125%, 150%, 200%) 및 울트라와이드 모니터 환경에서도 클라이언트 캔버스(0, 0)를 1픽셀 오차 없이 정확하게 인식합니다.
 - GUI 좌측에 **상/하(Y축) 미세보정 패널** 및 `[▲-30px]`, `[▲-15px]`, `[0px]`, `[▼+15px]` 퀵 프리셋 버튼을 탑재하여 언제든 클릭 높이를 쉽게 조절할 수 있습니다.
 
-### 5. 🎨 세련된 다크 테마 GUI 대시보드
+### 5. 🎯 템플릿 특정 부위 정밀 클릭 (Relative Pinpoint Click)
+- **원하는 지점 콕 찍어 클릭**: 기본값은 정중앙이지만, 타겟 카드의 `[🎯]` 버튼을 눌러 팝업된 이미지 위에서 마우스로 원하는 곳(우측 상단 'X' 닫기 버튼, 체크박스 등)을 콕 찍어 지정 가능.
+- **해상도 스케일링 자동 비례 연동**: 창 크기나 해상도가 달라져도 사용자가 찍은 위치가 비율에 맞춰 정확하게 자동 보정됩니다.
+
+### 6. 🔄 화면 연속 탭 (오토클릭 / 화면 계속 누르기)
+- **화면 계속 누르기 지원**: 특정 이미지 감지와 병행하거나 단독으로 화면을 일정 주기(0.1초~10초)로 툭툭 계속 클릭해 주는 오토클릭 모드.
+- **스마트 동작 조건**:
+  - `버튼 없을 때만 탭 (추천)`: 대화나 스토리를 계속 넘기다가 등록된 확인/전투시작 버튼이 나타나면 해당 버튼을 누르고 다시 화면 탭 재개.
+  - `항상 계속 탭`: 버튼 감지와 무관하게 화면 탭을 계속 병행.
+- **클릭 위치 커스텀**: 기본 `창 중앙` 외에도 `[🎯 화면에서 찍기]`를 눌러 프리뷰 화면에서 원하는 좌표를 클릭 한 번으로 지정 가능.
+
+### 7. 🎨 세련된 다크 테마 GUI 대시보드
 - `CustomTkinter` 기반의 모던 UI
 - 실시간 감지 현황 시각화 캔버스 (타겟별 색상 박스 및 일치율 표시)
 - 드래그 앤 드롭 영역 캡처 스니핑 툴 내장
@@ -49,7 +60,7 @@
 파이썬 설치가 필요 없는 **무설치 단일 실행 파일**을 다운로드하여 바로 사용하실 수 있습니다:
 
 1. [GitHub Releases](../../releases) 페이지로 이동합니다.
-2. 최신 버전의 **`GameMacro-v2.1.0-windows-x64.zip`** 파일을 다운로드합니다.
+2. 최신 버전의 **`GameMacro-v2.4.0-windows-x64.zip`** 파일을 다운로드합니다.
 3. 압축을 풀고 **`GameMacro.exe`**를 실행합니다.  
    *(관리자 권한 UAC 확인 창이 뜨면 **'예'**를 누릅니다)*
 

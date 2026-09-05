@@ -363,8 +363,107 @@ class TestMacroPackageSecuritySuite(unittest.TestCase):
         self.assertTrue(any("시스템/보안 프로그램 창" in err for err in res["errors"]))
 
 
+class TestPinpointAndAutoTapSuite(unittest.TestCase):
+    def setUp(self):
+        self.screen = np.full((400, 500, 3), (80, 40, 20), dtype=np.uint8)
+        # (100, 150) 위치에 녹색 버튼 (40x30) 부착 -> 중심: (120, 165)
+        cv2.rectangle(self.screen, (100, 150), (140, 180), (0, 255, 0), -1)
+        cv2.putText(self.screen, "PIN", (104, 172), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+        self.btn_img = self.screen[150:180, 100:140].copy()
+
+    def test_pinpoint_offset_clicking(self):
+        """특정 부위 클릭 (오프셋) 반영 및 스케일링 보정 검증"""
+        import macro_core
+        from profile_manager import ProfileManager
+
+        test_dir = "test_pinpoint_env"
+        os.makedirs(test_dir, exist_ok=True)
+
+        pm = ProfileManager(base_dir=test_dir)
+        engine = MacroEngine(profile_manager=pm)
+        engine.hwnd = 12345
+        engine.interval = 0.05
+        engine.max_clicks = 1
+
+        # 오프셋 (+10, -8)을 적용한 타겟 등록 (중심 120, 165 -> 클릭 130, 157)
+        target = TargetItem(
+            name="우측상단클릭버튼",
+            template_img=self.btn_img,
+            threshold=0.85,
+            offset_x=10,
+            offset_y=-8
+        )
+        engine.detector.add_target(target)
+
+        clicks = []
+        orig_capture = macro_core.capture_window
+        orig_dispatch = macro_core.dispatch_click
+
+        try:
+            macro_core.capture_window = lambda hwnd: self.screen
+            macro_core.dispatch_click = lambda hwnd, x, y, mode="hardware", jitter=0: clicks.append((x, y)) or True
+
+            engine.start()
+            time.sleep(0.3)
+            engine.stop()
+
+            self.assertEqual(len(clicks), 1)
+            cx, cy = clicks[0]
+            # 중심 (120, 165) + offset (10, -8) = (130, 157)
+            self.assertEqual(cx, 130, f"X 오프셋 적용 확인: {cx}")
+            self.assertEqual(cy, 157, f"Y 오프셋 적용 확인: {cy}")
+        finally:
+            macro_core.capture_window = orig_capture
+            macro_core.dispatch_click = orig_dispatch
+            if os.path.exists(test_dir):
+                shutil.rmtree(test_dir, ignore_errors=True)
+
+    def test_auto_tap_when_idle(self):
+        """감지된 버튼이 없을 때 화면 연속 탭(오토클릭) 트리거 검증"""
+        import macro_core
+        from profile_manager import ProfileManager
+
+        test_dir = "test_autotap_env"
+        os.makedirs(test_dir, exist_ok=True)
+
+        pm = ProfileManager(base_dir=test_dir)
+        engine = MacroEngine(profile_manager=pm)
+        engine.hwnd = 12345
+        engine.interval = 0.05
+        engine.auto_tap_enabled = True
+        engine.auto_tap_interval = 0.1
+        engine.auto_tap_point = (250, 200) # 화면 특정 좌표
+        engine.auto_tap_mode = "when_idle"
+        engine.max_clicks = 2
+
+        # 빈 화면 (버튼 감지 없음)
+        blank_screen = np.zeros((400, 500, 3), dtype=np.uint8)
+
+        clicks = []
+        orig_capture = macro_core.capture_window
+        orig_dispatch = macro_core.dispatch_click
+
+        try:
+            macro_core.capture_window = lambda hwnd: blank_screen
+            macro_core.dispatch_click = lambda hwnd, x, y, mode="hardware", jitter=0: clicks.append((x, y)) or True
+
+            engine.start()
+            time.sleep(0.35)
+            engine.stop()
+
+            self.assertGreaterEqual(len(clicks), 1, "화면 연속 탭이 최소 1회 이상 트리거되어야 합니다.")
+            # 클릭된 좌표가 auto_tap_point (250, 200)인지 검증
+            self.assertEqual(clicks[0], (250, 200))
+        finally:
+            macro_core.capture_window = orig_capture
+            macro_core.dispatch_click = orig_dispatch
+            if os.path.exists(test_dir):
+                shutil.rmtree(test_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

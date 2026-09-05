@@ -266,6 +266,205 @@ class AddTargetDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class TargetPinpointDialog(ctk.CTkToplevel):
+    """
+    템플릿 이미지 내 특정 클릭 지점을 마우스로 콕 찍어 지정하는 대화상자
+    """
+    def __init__(self, parent, target: TargetItem, on_save_offset):
+        super().__init__(parent)
+        self.title(f"🎯 클릭 위치 지정 - '{target.name}'")
+        self.geometry("480x560")
+        self.attributes("-topmost", True)
+        self.resizable(False, False)
+
+        self.target = target
+        self.on_save_offset = on_save_offset
+
+        self.orig_img = target.template_img.copy()
+        self.img_h, self.img_w = self.orig_img.shape[:2]
+
+        self.current_off_x = target.offset_x
+        self.current_off_y = target.offset_y
+
+        # 캔버스 배율 계산
+        max_w, max_h = 420, 260
+        zoom_w = max_w / max(1, self.img_w)
+        zoom_h = max_h / max(1, self.img_h)
+        self.zoom = min(zoom_w, zoom_h)
+        if self.zoom < 1.0:
+            self.zoom = 1.0
+        elif self.zoom > 6.0:
+            self.zoom = 6.0
+
+        self.disp_w = max(40, int(self.img_w * self.zoom))
+        self.disp_h = max(40, int(self.img_h * self.zoom))
+
+        self.photo_img = None
+        self.setup_ui()
+
+    def setup_ui(self):
+        ctk.CTkLabel(
+            self,
+            text=f"🎯 [{self.target.name}] 클릭 지점 설정",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=(16, 4))
+
+        ctk.CTkLabel(
+            self,
+            text="이미지 위에서 클릭할 위치를 마우스로 직접 찍으세요.\n(우측 상단 닫기 X버튼, 체크박스 등 특정 부위 클릭 시 유용)",
+            font=ctk.CTkFont(size=12),
+            text_color="#aaaaaa"
+        ).pack(pady=(0, 10))
+
+        # 이미지 캔버스 프레임
+        canvas_frame = ctk.CTkFrame(self, fg_color="#181822")
+        canvas_frame.pack(padx=20, pady=4)
+
+        self.canvas = tk.Canvas(
+            canvas_frame,
+            width=self.disp_w,
+            height=self.disp_h,
+            bg="#111116",
+            highlightthickness=1,
+            highlightbackground="#34495e",
+            cursor="crosshair"
+        )
+        self.canvas.pack(padx=4, pady=4)
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
+
+        # 상태 라벨
+        self.status_lbl = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#f39c12"
+        )
+        self.status_lbl.pack(pady=(8, 4))
+
+        coord_box = ctk.CTkFrame(self, fg_color="#20202e", corner_radius=8)
+        coord_box.pack(fill="x", padx=25, pady=6)
+
+        c_row = ctk.CTkFrame(coord_box, fg_color="transparent")
+        c_row.pack(padx=10, pady=8)
+
+        ctk.CTkLabel(c_row, text="오프셋 X:", font=ctk.CTkFont(size=12)).pack(side="left", padx=4)
+        self.entry_x = ctk.CTkEntry(c_row, width=60, height=28)
+        self.entry_x.pack(side="left", padx=2)
+        self.entry_x.bind("<KeyRelease>", self.on_manual_entry)
+
+        ctk.CTkLabel(c_row, text="px  |  Y:", font=ctk.CTkFont(size=12)).pack(side="left", padx=4)
+        self.entry_y = ctk.CTkEntry(c_row, width=60, height=28)
+        self.entry_y.pack(side="left", padx=2)
+        self.entry_y.bind("<KeyRelease>", self.on_manual_entry)
+        ctk.CTkLabel(c_row, text="px", font=ctk.CTkFont(size=12)).pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            c_row,
+            text="중앙(0,0)",
+            width=70,
+            height=26,
+            fg_color="#444455",
+            hover_color="#555566",
+            command=self.reset_to_center
+        ).pack(side="left", padx=(10, 0))
+
+        # 하단 버튼
+        btn_bar = ctk.CTkFrame(self, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=25, pady=(15, 10))
+
+        ctk.CTkButton(
+            btn_bar,
+            text="취소",
+            width=100,
+            height=36,
+            fg_color="#555566",
+            hover_color="#666677",
+            command=self.destroy
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btn_bar,
+            text="✅ 저장 및 적용",
+            height=36,
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.save_and_close
+        ).pack(side="right", fill="x", expand=True, padx=(10, 0))
+
+        self.update_display()
+
+    def update_display(self):
+        # 템플릿 이미지 리사이즈
+        img_rgb = cv2.cvtColor(self.orig_img, cv2.COLOR_BGR2RGB)
+        resample_mode = Image.Resampling.NEAREST if self.zoom > 1.5 else Image.Resampling.LANCZOS
+        pil_img = Image.fromarray(img_rgb).resize((self.disp_w, self.disp_h), resample_mode)
+        self.photo_img = ImageTk.PhotoImage(pil_img)
+
+        self.canvas.delete("all")
+        self.canvas.create_image(0, 0, anchor="nw", image=self.photo_img)
+
+        # 중심선 (약한 십자선)
+        cx = self.disp_w / 2.0
+        cy = self.disp_h / 2.0
+        self.canvas.create_line(cx, 0, cx, self.disp_h, fill="#444455", dash=(2, 2))
+        self.canvas.create_line(0, cy, self.disp_w, cy, fill="#444455", dash=(2, 2))
+
+        # 현재 오프셋 지점 계산
+        pin_x = int((self.img_w / 2.0 + self.current_off_x) * self.zoom)
+        pin_y = int((self.img_h / 2.0 + self.current_off_y) * self.zoom)
+
+        # 조준 마커 그리기 (빨간 원 + 십자선)
+        r = 6
+        self.canvas.create_oval(pin_x - r, pin_y - r, pin_x + r, pin_y + r, outline="#e74c3c", width=2, tags="marker")
+        self.canvas.create_line(pin_x - r - 4, pin_y, pin_x + r + 4, pin_y, fill="#e74c3c", width=2, tags="marker")
+        self.canvas.create_line(pin_x, pin_y - r - 4, pin_x, pin_y + r + 4, fill="#e74c3c", width=2, tags="marker")
+
+        # 상태 및 텍스트박스 업데이트
+        pos_desc = "정중앙 클릭" if (self.current_off_x == 0 and self.current_off_y == 0) else f"오프셋 적용 (X: {self.current_off_x:+d}px, Y: {self.current_off_y:+d}px)"
+        self.status_lbl.configure(text=f"선택 위치: {pos_desc}")
+
+        self.entry_x.delete(0, "end")
+        self.entry_x.insert(0, str(self.current_off_x))
+        self.entry_y.delete(0, "end")
+        self.entry_y.insert(0, str(self.current_off_y))
+
+    def on_canvas_click(self, event):
+        orig_x = int(event.x / self.zoom)
+        orig_y = int(event.y / self.zoom)
+        orig_x = max(0, min(self.img_w - 1, orig_x))
+        orig_y = max(0, min(self.img_h - 1, orig_y))
+
+        self.current_off_x = orig_x - self.img_w // 2
+        self.current_off_y = orig_y - self.img_h // 2
+        self.update_display()
+
+    def on_manual_entry(self, event=None):
+        try:
+            self.current_off_x = int(self.entry_x.get())
+            self.current_off_y = int(self.entry_y.get())
+            pin_x = int((self.img_w / 2.0 + self.current_off_x) * self.zoom)
+            pin_y = int((self.img_h / 2.0 + self.current_off_y) * self.zoom)
+            self.canvas.delete("marker")
+            r = 6
+            self.canvas.create_oval(pin_x - r, pin_y - r, pin_x + r, pin_y + r, outline="#e74c3c", width=2, tags="marker")
+            self.canvas.create_line(pin_x - r - 4, pin_y, pin_x + r + 4, pin_y, fill="#e74c3c", width=2, tags="marker")
+            self.canvas.create_line(pin_x, pin_y - r - 4, pin_x, pin_y + r + 4, fill="#e74c3c", width=2, tags="marker")
+            pos_desc = "정중앙 클릭" if (self.current_off_x == 0 and self.current_off_y == 0) else f"오프셋 적용 (X: {self.current_off_x:+d}px, Y: {self.current_off_y:+d}px)"
+            self.status_lbl.configure(text=f"선택 위치: {pos_desc}")
+        except ValueError:
+            pass
+
+    def reset_to_center(self):
+        self.current_off_x = 0
+        self.current_off_y = 0
+        self.update_display()
+
+    def save_and_close(self):
+        self.on_save_offset(self.target.id, self.current_off_x, self.current_off_y)
+        self.destroy()
+
+
 class ImportVerifyDialog(ctk.CTkToplevel):
     """
     매크로 패키지(.gmac) 4단계 보안 검증 및 시각적 미리보기 대화상자
@@ -434,6 +633,7 @@ class MacroApp(ctk.CTk):
         self.last_frame: Optional[np.ndarray] = None
         self.target_cards = {}
         self._profile_map: Dict[str, str] = {}
+        self.is_picking_autotap_point: bool = False
 
         # 엔진 콜백 연결
         self.engine.on_log = self.append_log
@@ -444,6 +644,7 @@ class MacroApp(ctk.CTk):
         self.refresh_profile_list()
         self.refresh_window_list()
         self.render_target_list()
+        self.sync_autotap_ui()
 
     def setup_ui(self):
         # 1. 최상단 헤더 바
@@ -679,6 +880,74 @@ class MacroApp(ctk.CTk):
         self.interval_entry.insert(0, "0.4")
         self.interval_entry.pack(side="left")
 
+        # 5. 화면 연속 탭 (오토클릭)
+        ctk.CTkLabel(col1, text="5. 🔄 화면 연속 탭 (오토클릭)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        autotap_card = ctk.CTkFrame(col1, fg_color="#20202e", corner_radius=8)
+        autotap_card.pack(fill="x", padx=12, pady=2)
+
+        # 활성화 체크박스
+        self.autotap_enabled_var = ctk.BooleanVar(value=False)
+        self.autotap_chk = ctk.CTkCheckBox(
+            autotap_card,
+            text="화면 계속 누르기 활성화",
+            variable=self.autotap_enabled_var,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_autotap_toggle
+        )
+        self.autotap_chk.pack(anchor="w", padx=10, pady=(8, 4))
+
+        # 설정 행 (주기 + 모드)
+        at_row1 = ctk.CTkFrame(autotap_card, fg_color="transparent")
+        at_row1.pack(fill="x", padx=10, pady=2)
+
+        ctk.CTkLabel(at_row1, text="주기:", width=32, anchor="w", font=ctk.CTkFont(size=11)).pack(side="left")
+        self.autotap_interval_var = ctk.StringVar(value="0.5")
+        self.autotap_interval_entry = ctk.CTkEntry(at_row1, textvariable=self.autotap_interval_var, width=45, height=26)
+        self.autotap_interval_entry.pack(side="left", padx=(0, 2))
+        self.autotap_interval_entry.bind("<KeyRelease>", self.on_autotap_setting_changed)
+        ctk.CTkLabel(at_row1, text="초", font=ctk.CTkFont(size=11), text_color="#aaaaaa").pack(side="left", padx=(0, 6))
+
+        self.autotap_mode_var = ctk.StringVar(value="버튼 없을 때만 탭")
+        self.autotap_mode_combo = ctk.CTkComboBox(
+            at_row1,
+            variable=self.autotap_mode_var,
+            values=["버튼 없을 때만 탭", "항상 계속 탭"],
+            width=135,
+            height=26,
+            command=self.on_autotap_mode_changed
+        )
+        self.autotap_mode_combo.pack(side="right")
+
+        # 좌표 설정 행
+        at_row2 = ctk.CTkFrame(autotap_card, fg_color="transparent")
+        at_row2.pack(fill="x", padx=10, pady=(4, 8))
+
+        self.autotap_pos_lbl = ctk.CTkLabel(at_row2, text="위치: 창 중앙", font=ctk.CTkFont(size=11), text_color="#f39c12", width=95, anchor="w")
+        self.autotap_pos_lbl.pack(side="left")
+
+        self.btn_pick_tap_pos = ctk.CTkButton(
+            at_row2,
+            text="🎯 화면에서 찍기",
+            width=88,
+            height=24,
+            font=ctk.CTkFont(size=10),
+            fg_color="#34495e",
+            hover_color="#2c3e50",
+            command=self.start_pick_autotap_point
+        )
+        self.btn_pick_tap_pos.pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            at_row2,
+            text="중앙",
+            width=42,
+            height=24,
+            font=ctk.CTkFont(size=10),
+            fg_color="#444455",
+            hover_color="#555566",
+            command=self.reset_autotap_point
+        ).pack(side="right")
+
         # 매크로 시작 / 정지 버튼
         ctrl_box = ctk.CTkFrame(col1, fg_color="transparent")
         ctrl_box.pack(fill="x", padx=12, pady=(15, 10))
@@ -802,6 +1071,7 @@ class MacroApp(ctk.CTk):
             self.offset_y_var.set(str(self.engine.global_offset_y))
             self.render_target_list()
             self.refresh_profile_list()
+            self.sync_autotap_ui()
             self.append_log(f"📋 매크로 전환: '{selected_name}' (등록 타겟 {len(self.engine.get_all_targets())}개)")
 
             # 해당 프로필에 저장된 윈도우 제목이 있고 현재 창 목록에 있으면 자동 선택
@@ -814,6 +1084,50 @@ class MacroApp(ctk.CTk):
                         self.engine.set_target_window(w['hwnd'])
                         self.append_log(f"타겟 창 자동 복원: {w['title']}")
                         break
+
+    def sync_autotap_ui(self):
+        self.autotap_enabled_var.set(self.engine.auto_tap_enabled)
+        self.autotap_interval_var.set(str(self.engine.auto_tap_interval))
+        self.autotap_mode_var.set("버튼 없을 때만 탭" if self.engine.auto_tap_mode == "when_idle" else "항상 계속 탭")
+        if self.engine.auto_tap_point:
+            self.autotap_pos_lbl.configure(text=f"위치: ({self.engine.auto_tap_point[0]}, {self.engine.auto_tap_point[1]})")
+        else:
+            self.autotap_pos_lbl.configure(text="위치: 창 중앙")
+
+    def on_autotap_toggle(self):
+        val = self.autotap_enabled_var.get()
+        self.engine.auto_tap_enabled = val
+        self.engine.save_targets()
+        status_txt = "활성화" if val else "비활성화"
+        self.append_log(f"🔄 화면 연속 탭(오토클릭) {status_txt}")
+
+    def on_autotap_setting_changed(self, event=None):
+        try:
+            val = float(self.autotap_interval_var.get())
+            if val >= 0.05:
+                self.engine.auto_tap_interval = val
+                self.engine.save_targets()
+        except ValueError:
+            pass
+
+    def on_autotap_mode_changed(self, choice):
+        mode = "when_idle" if choice == "버튼 없을 때만 탭" else "always"
+        self.engine.auto_tap_mode = mode
+        self.engine.save_targets()
+        self.append_log(f"🔄 화면 연속 탭 모드 변경: {choice}")
+
+    def start_pick_autotap_point(self):
+        self.is_picking_autotap_point = True
+        self.btn_pick_tap_pos.configure(text="👉 화면 클릭 대기", fg_color="#e67e22")
+        self.append_log("🎯 우측 미리보기 화면에서 화면 연속 탭을 누를 위치를 마우스로 클릭하세요.")
+
+    def reset_autotap_point(self):
+        self.is_picking_autotap_point = False
+        self.engine.auto_tap_point = None
+        self.engine.save_targets()
+        self.btn_pick_tap_pos.configure(text="🎯 화면에서 찍기", fg_color="#34495e")
+        self.autotap_pos_lbl.configure(text="위치: 창 중앙")
+        self.append_log("🔄 화면 연속 탭 위치를 '창 정중앙'으로 초기화했습니다.")
 
     def on_create_profile_dialog(self):
         dialog = ctk.CTkInputDialog(
@@ -967,7 +1281,14 @@ class MacroApp(ctk.CTk):
             title_box.pack(side="left", fill="both", expand=True)
             ctk.CTkLabel(title_box, text=t.name, font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(fill="x")
             res_tag = f" | {t.base_width}x{t.base_height}" if t.base_width > 0 else " | 자동비율"
-            ctk.CTkLabel(title_box, text=f"우선순위: {t.priority} | 쿨다운: {t.cooldown}초{res_tag}", font=ctk.CTkFont(size=10), text_color="gray", anchor="w").pack(fill="x")
+            off_tag = f" | 🎯 {t.offset_x:+d},{t.offset_y:+d}px" if (t.offset_x != 0 or t.offset_y != 0) else ""
+            ctk.CTkLabel(
+                title_box,
+                text=f"우선순위: {t.priority} | 쿨다운: {t.cooldown}초{res_tag}{off_tag}",
+                font=ctk.CTkFont(size=10),
+                text_color="#f39c12" if off_tag else "gray",
+                anchor="w"
+            ).pack(fill="x")
 
             # 스위치
             switch_var = ctk.BooleanVar(value=t.enabled)
@@ -980,7 +1301,7 @@ class MacroApp(ctk.CTk):
             )
             sw.pack(side="right", padx=2)
 
-            # 하단: 일치율 슬라이더 + 삭제 버튼
+            # 하단: 일치율 슬라이더 + 오프셋 버튼 + 삭제 버튼
             bottom_row = ctk.CTkFrame(card, fg_color="transparent")
             bottom_row.pack(fill="x", padx=8, pady=(2, 6))
 
@@ -996,6 +1317,18 @@ class MacroApp(ctk.CTk):
             slider.set(int(t.threshold * 100))
             slider.pack(side="left", fill="x", expand=True, padx=4)
 
+            # 클릭 위치 지정 버튼
+            pin_btn = ctk.CTkButton(
+                bottom_row,
+                text="🎯",
+                width=28,
+                height=24,
+                fg_color="#d35400" if (t.offset_x != 0 or t.offset_y != 0) else "#34495e",
+                hover_color="#ba4a00" if (t.offset_x != 0 or t.offset_y != 0) else "#2c3e50",
+                command=lambda target=t: self.open_pinpoint_dialog(target)
+            )
+            pin_btn.pack(side="right", padx=(4, 0))
+
             # 삭제 버튼
             del_btn = ctk.CTkButton(
                 bottom_row,
@@ -1007,6 +1340,14 @@ class MacroApp(ctk.CTk):
                 command=lambda tid=t.id: self.delete_target_card(tid)
             )
             del_btn.pack(side="right", padx=(4, 0))
+
+    def open_pinpoint_dialog(self, target: TargetItem):
+        def on_saved(tid, off_x, off_y):
+            self.engine.update_target_offset(tid, off_x, off_y)
+            self.render_target_list()
+            self.append_log(f"🎯 [{target.name}] 클릭 위치 변경 완료: (중심 기준 {off_x:+d}px, {off_y:+d}px)")
+
+        TargetPinpointDialog(self, target, on_save_offset=on_saved)
 
     def delete_target_card(self, target_id: str):
         self.engine.remove_target(target_id)
@@ -1116,8 +1457,20 @@ class MacroApp(ctk.CTk):
         click_y = event.y - offset_y
 
         if 0 <= click_x < dw and 0 <= click_y < dh:
-            real_x = int(click_x / scale) + self.engine.global_offset_x
-            real_y = int(click_y / scale) + self.engine.global_offset_y
+            real_x = int(click_x / scale)
+            real_y = int(click_y / scale)
+
+            if getattr(self, "is_picking_autotap_point", False):
+                self.is_picking_autotap_point = False
+                self.engine.auto_tap_point = (real_x, real_y)
+                self.engine.save_targets()
+                self.btn_pick_tap_pos.configure(text="🎯 화면에서 찍기", fg_color="#34495e")
+                self.autotap_pos_lbl.configure(text=f"위치: ({real_x}, {real_y})")
+                self.append_log(f"🔄 화면 연속 탭 위치 지정 완료: ({real_x}, {real_y})")
+                return
+
+            real_x += self.engine.global_offset_x
+            real_y += self.engine.global_offset_y
             mode = self.click_mode_var.get()
             self.append_log(f"🖱️ 캔버스 클릭 -> 대상 창 ({real_x}, {real_y}) 좌표 [{mode.upper()}] 전송")
             dispatch_click(self.engine.hwnd, real_x, real_y, mode=mode)
