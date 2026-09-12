@@ -86,3 +86,18 @@
     - 프로필별로 연속 탭 설정(활성화, 주기, 좌표, 모드) 독립 보존.
   - `test_suite.py` 내 단위 테스트 2종 추가 및 전체 15개 단위 테스트 ALL PASS.
   - `GameMacro.exe` 재빌드 및 `release/GameMacro-v2.4.0-windows-x64.zip` 패키징 완료.
+- **화면 캡처 중단 버그 해결 및 자동 복구/GDI 누수 원천 차단 (v2.4.1)**:
+  - **원인 분석 (GDI Handle Leak & Window Handle Invalidation)**:
+    1) Win32 GDI 규칙 위반: `GetDC`/`GetWindowDC`로 얻은 DC에 대해 `DeleteDC()`를 호출하여 OS DC 테이블 오염 발생.
+    2) 비트맵 핸들 누수: `SelectObject(hdc, hbm)`된 비트맵을 이전 원본 비트맵으로 복원하지 않고 삭제를 시도하여 GDI 핸들이 프로세스당 10,000개 한도에 도달, Error 6(`ERROR_INVALID_HANDLE`)/Error 5 발생.
+    3) 게임 재시작 시 윈도우 핸들(HWND) 무효화: 클라이언트 재시작 시 새 HWND를 발급받았으나 기존 죽은 HWND를 계속 잡고 있어 캡처 불가.
+    4) 스레드 데스크톱 분리: `win32ui`/MFC 로딩 전 `SetThreadDesktop(OpenInputDesktop())` 미수행 시 interactive 데스크톱 분리 현상 발생.
+  - **해결 내역**:
+    - `window_capture.py` 전면 리팩토링: `_safe_gdi_capture()` 헬퍼를 통해 비트맵 핸들 복원 후 안전 해제, `ReleaseDC` 엄격 적용, `win32ui` import 전 스레드 데스크톱 동기화(`sync_thread_desktop`).
+    - DWM PrintWindow ➔ WindowDC BitBlt ➔ Desktop BitBlt ➔ `mss` 4단계 무결점 폴백 엔진 구축 및 `get_last_capture_error()` 진단 시스템 탑재.
+    - `macro_core.py` 자동 재연결: `not win32gui.IsWindow(self.hwnd)` 감지 시 프로필의 대상 창 제목으로 새 창 핸들을 실시간 자동 탐색 및 즉시 재연결.
+    - 대상 창 최소화(`win32gui.IsIconic`) 시 친절한 안내 로그 및 대기 로직 적용.
+    - `main_gui.py`: 캡처/크롭/감지 실패 시 상세 오류 메시지 팝업 연동 및 GUI 타이틀 v2.4.1 갱신.
+    - `test_suite.py` 전체 15개 단위 테스트 통과 (`ALL PASS`).
+    - `GameMacro.exe` 재빌드 완료 (관리자 권한 매니페스트 및 `mss` 포함, 69.3MB).
+    - `release/GameMacro-v2.4.1-windows-x64.zip` 배포 패키지 생성 완료.

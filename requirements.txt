@@ -4,5 +4,5 @@ pywin32>=306
 Pillow>=10.0.0
 customtkinter>=5.2.0
 darkdetect>=0.8.0
+mss>=9.0.0
 pyinstaller>=6.0.0
-

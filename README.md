@@ -1,14 +1,14 @@
-# 🎮 GameMacro (게임 매크로 v2.4)
+# 🎮 GameMacro (게임 매크로 v2.4.1)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.4.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
-[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.0/GameMacro-v2.4.0-windows-x64.zip)
+[![Release](https://img.shields.io/badge/Release-v2.4.1-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.1/GameMacro-v2.4.1-windows-x64.zip)
 
 > **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 4단계 보안 검증 공유 패키지 및 하이브리드 자동 클릭 도구**
 
-### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.0/GameMacro-v2.4.0-windows-x64.zip)
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.1) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.1/GameMacro-v2.4.1-windows-x64.zip)
 *파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
@@ -53,6 +53,11 @@
 - 드래그 앤 드롭 영역 캡처 스니핑 툴 내장
 - 상세 동작 및 활동 로그 실시간 출력
 
+### 8. 🛡️ 무결점 화면 캡처 및 자동 복구 엔진 (v2.4.1)
+- **GDI 자원 누수 완전 차단**: Windows DC 테이블 오염 및 비트맵 핸들 누수를 원천 차단하여 장시간 연속 실행 시에도 캡처 실패 0% 보장.
+- **창 재시작 자동 감지 및 재연결 (Auto-Reacquisition)**: 게임 재접속이나 클라이언트 재실행 등으로 윈도우 핸들(HWND)이 변경되더라도 매크로가 게임 창을 자동으로 찾아 즉각 재연결.
+- **4단계 폴백 캡처**: DWM PrintWindow ➔ WindowDC BitBlt ➔ Desktop BitBlt ➔ MSS 라이브러리 연동으로 최소화/가려진 창/보안 환경에서도 안정적 캡처 지원.
+
 ---
 
 ## 📦 다운로드 및 빠른 실행 (Releases)
@@ -60,11 +65,11 @@
 파이썬 설치가 필요 없는 **무설치 단일 실행 파일**을 다운로드하여 바로 사용하실 수 있습니다:
 
 1. [GitHub Releases](../../releases) 페이지로 이동합니다.
-2. 최신 버전의 **`GameMacro-v2.4.0-windows-x64.zip`** 파일을 다운로드합니다.
+2. 최신 버전의 **`GameMacro-v2.4.1-windows-x64.zip`** 파일을 다운로드합니다.
 3. 압축을 풀고 **`GameMacro.exe`**를 실행합니다.  
    *(관리자 권한 UAC 확인 창이 뜨면 **'예'**를 누릅니다)*
 
-> 💡 **알림**: 사용자가 등록한 캡처 버튼(`templates/`)과 설정(`targets_config.json`)은 `GameMacro.exe`가 위치한 폴더에 자동으로 영구 보관됩니다.
+> 💡 **알림**: 사용자가 등록한 캡처 버튼(`templates/`)과 설정(`targets_config.json`), 프로필(`profiles/`)은 `GameMacro.exe`가 위치한 폴더에 자동으로 영구 보관됩니다.
 
 ---
 

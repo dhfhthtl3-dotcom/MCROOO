@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from window_capture import get_window_list, capture_window
+from window_capture import get_window_list, capture_window, get_last_capture_error
 from detector import MultiTargetDetector, TargetItem
 from clicker import dispatch_click
 from macro_core import MacroEngine
@@ -624,7 +624,7 @@ class MacroApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("🎯 다중 버튼 감지 및 하이브리드 자동 클릭 매크로 v2.0")
+        self.title("🎯 다중 버튼 감지 및 하이브리드 자동 클릭 매크로 v2.4.1")
         self.geometry("1240x820")
         self.minsize(1100, 720)
 
@@ -653,7 +653,7 @@ class MacroApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="🎯 Multi-Button Frame Detector & Hybrid Clicker v2.1",
+            text="🎯 Multi-Button Frame Detector & Hybrid Clicker v2.4.1",
             font=ctk.CTkFont(size=17, weight="bold")
         ).pack(side="left", padx=20, pady=10)
 
@@ -1362,7 +1362,9 @@ class MacroApp(ctk.CTk):
 
         frame = capture_window(self.engine.hwnd)
         if frame is None:
-            messagebox.showerror("오류", "대상 창 화면을 캡처할 수 없습니다.")
+            err = get_last_capture_error()
+            msg = f"대상 창 화면을 캡처할 수 없습니다.\n({err})" if err else "대상 창 화면을 캡처할 수 없습니다."
+            messagebox.showerror("오류", msg)
             return
 
         CropSnippingDialog(self, frame, on_crop_done=self.on_crop_completed)
@@ -1423,7 +1425,9 @@ class MacroApp(ctk.CTk):
 
         frame = capture_window(self.engine.hwnd)
         if frame is None:
-            messagebox.showerror("오류", "창 캡처 실패")
+            err = get_last_capture_error()
+            msg = f"창 캡처 실패\n({err})" if err else "창 캡처 실패"
+            messagebox.showerror("오류", msg)
             return
 
         h, w = frame.shape[:2]
@@ -1530,7 +1534,10 @@ class MacroApp(ctk.CTk):
             self.display_screen_preview(frame)
             self.append_log(f"창 캡처 성공! (크기: {frame.shape[1]}x{frame.shape[0]})")
         else:
-            messagebox.showerror("오류", "창 캡처에 실패했습니다.")
+            err = get_last_capture_error()
+            msg = f"창 캡처에 실패했습니다.\n({err})" if err else "창 캡처에 실패했습니다."
+            self.append_log(f"❌ {msg}")
+            messagebox.showerror("오류", msg)
 
     def test_detect_once(self):
         if not self.engine.hwnd:
@@ -1539,7 +1546,10 @@ class MacroApp(ctk.CTk):
 
         frame = capture_window(self.engine.hwnd)
         if frame is None:
-            messagebox.showerror("오류", "화면 캡처 실패")
+            err = get_last_capture_error()
+            msg = f"화면 캡처 실패\n({err})" if err else "화면 캡처 실패"
+            self.append_log(f"❌ {msg}")
+            messagebox.showerror("오류", msg)
             return
 
         self.last_frame = frame

@@ -10,11 +10,24 @@ import ctypes
 from ctypes import wintypes
 import numpy as np
 import win32gui
-import win32ui
 import win32con
 import win32process
 import win32service
 from typing import List, Dict, Optional, Tuple
+
+def sync_thread_desktop():
+    """현재 스레드를 시스템의 활성 입력 데스크톱(Default)으로 동기화합니다."""
+    try:
+        hdesk = win32service.OpenInputDesktop(0, False, win32con.GENERIC_ALL)
+        if hdesk:
+            ctypes.windll.user32.SetThreadDesktop(int(hdesk))
+    except Exception:
+        pass
+
+# 스레드 데스크톱 동기화 (win32ui MFC 초기화 전 필수 호출)
+sync_thread_desktop()
+
+import win32ui
 
 # DPI 인식 설정
 try:
@@ -99,16 +112,34 @@ def get_window_list() -> List[Dict[str, any]]:
     return windows
 
 
+_last_capture_error: str = ""
+
+
+def get_last_capture_error() -> str:
+    """마지막 화면 캡처 실패 사유를 반환합니다."""
+    return _last_capture_error
+
+
 def capture_window(hwnd: int, client_only: bool = True) -> Optional[np.ndarray]:
     """
     특정 윈도우(HWND)의 현재 화면을 비트맵으로 캡처하여 OpenCV BGR 형식으로 반환합니다.
-    창이 뒤에 가려져 있거나 비활성화되어 있어도 PrintWindow(PW_RENDERFULLCONTENT)를 통해 캡처합니다.
+    GDI 자원 누수를 원천 차단하고 DWM/PrintWindow/Desktop/BitBlt 5단계 폴백을 지원합니다.
     
     :param hwnd: 대상 윈도우 핸들
     :param client_only: 클라이언트(내부 캔버스) 영역만 캡처할지 여부
     :return: BGR 형식의 numpy.ndarray 또는 실패 시 None
     """
+    global _last_capture_error
+    _last_capture_error = ""
+
+    sync_thread_desktop()
+
     if not win32gui.IsWindow(hwnd):
+        _last_capture_error = f"창 핸들({hwnd})이 유효하지 않거나 창이 종료되었습니다."
+        return None
+
+    if win32gui.IsIconic(hwnd):
+        _last_capture_error = "대상 창이 최소화(아이콘화)되어 있어 화면을 캡처할 수 없습니다. 창을 화면에 복원해 주세요."
         return None
 
     try:
@@ -116,7 +147,6 @@ def capture_window(hwnd: int, client_only: bool = True) -> Optional[np.ndarray]:
             left, top, right, bottom = win32gui.GetClientRect(hwnd)
             width = right - left
             height = bottom - top
-            # 클라이언트 영역의 창 기준 오프셋 (타이틀바 및 창 테두리)
             wrect = win32gui.GetWindowRect(hwnd)
             pt = win32gui.ClientToScreen(hwnd, (0, 0))
             offset_x = max(0, pt[0] - wrect[0])
@@ -127,145 +157,130 @@ def capture_window(hwnd: int, client_only: bool = True) -> Optional[np.ndarray]:
             height = bottom - top
             offset_x = 0
             offset_y = 0
-    except Exception:
+            pt = (left, top)
+    except Exception as e:
+        _last_capture_error = f"창 크기 및 좌표 계산 오류: {e}"
         return None
 
     if width <= 0 or height <= 0:
+        _last_capture_error = f"유효하지 않은 창 크기입니다. ({width}x{height})"
         return None
 
+    def _safe_gdi_capture(src_dc_handle, src_x: int, src_y: int, w: int, h: int, use_printwindow: bool = False, pw_flags: int = 0) -> Optional[np.ndarray]:
+        """GDI 자원 누수 없이 안전하게 비트맵을 복사하는 내부 헬퍼"""
+        if not src_dc_handle:
+            return None
+        save_dc = None
+        save_bitmap = None
+        old_bmp = None
+        try:
+            src_mfc = win32ui.CreateDCFromHandle(src_dc_handle)
+            save_dc = src_mfc.CreateCompatibleDC()
+            save_bitmap = win32ui.CreateBitmap()
+            save_bitmap.CreateCompatibleBitmap(src_mfc, w, h)
+            old_bmp = save_dc.SelectObject(save_bitmap)
+
+            if use_printwindow:
+                res = ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), pw_flags)
+                if not res:
+                    return None
+            else:
+                save_dc.BitBlt((0, 0), (w, h), src_mfc, (src_x, src_y), win32con.SRCCOPY)
+
+            bmpinfo = save_bitmap.GetInfo()
+            bmpstr = save_bitmap.GetBitmapBits(True)
+            img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
+            if np.count_nonzero(img) > 0:
+                return img[:, :, :3].copy()
+            return None
+        except Exception:
+            return None
+        finally:
+            if save_dc is not None:
+                if old_bmp is not None:
+                    try:
+                        save_dc.SelectObject(old_bmp)
+                    except Exception:
+                        pass
+                try:
+                    save_dc.DeleteDC()
+                except Exception:
+                    pass
+            if save_bitmap is not None:
+                try:
+                    win32gui.DeleteObject(save_bitmap.GetHandle())
+                except Exception:
+                    pass
+            # 중요: src_mfc.DeleteDC()는 절대 호출하지 않음 (ReleaseDC만 수행)
+
     # ----------------------------------------------------
-    # 전략 1: PrintWindow (PW_CLIENTONLY / PW_RENDERFULLCONTENT)
+    # 전략 1: PrintWindow (PW_RENDERFULLCONTENT | PW_CLIENTONLY = 3 또는 2)
     # ----------------------------------------------------
     hwnd_dc = None
-    mfc_dc = None
-    save_dc = None
-    save_bitmap = None
-
     try:
         hwnd_dc = win32gui.GetWindowDC(hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(save_bitmap)
+        if hwnd_dc:
+            # 1-A: PW_RENDERFULLCONTENT (0x02)
+            img = _safe_gdi_capture(hwnd_dc, 0, 0, width, height, use_printwindow=True, pw_flags=PW_RENDERFULLCONTENT)
+            if img is not None:
+                return img
 
-        flags = PW_CLIENTONLY if client_only else PW_RENDERFULLCONTENT
-        res = ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), flags)
-        
-        if res:
-            bmpinfo = save_bitmap.GetInfo()
-            bmpstr = save_bitmap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
-            
-            # 유효한 픽셀이 존재하는지 검증 (전체 검은 화면 제외)
-            if np.count_nonzero(img) > 0:
-                img_bgr = img[:, :, :3].copy()
-                return img_bgr
-
+            # 1-B: PW_CLIENTONLY (0x01)
+            if client_only:
+                img = _safe_gdi_capture(hwnd_dc, 0, 0, width, height, use_printwindow=True, pw_flags=PW_CLIENTONLY)
+                if img is not None:
+                    return img
     except Exception:
         pass
     finally:
-        if save_bitmap is not None:
-            win32gui.DeleteObject(save_bitmap.GetHandle())
-        if save_dc is not None:
-            save_dc.DeleteDC()
-        if mfc_dc is not None:
-            mfc_dc.DeleteDC()
         if hwnd_dc is not None:
             win32gui.ReleaseDC(hwnd, hwnd_dc)
 
     # ----------------------------------------------------
-    # 전략 2: PrintWindow 기본 (PW_RENDERFULLCONTENT)
+    # 전략 2: WindowDC BitBlt (타이틀바/테두리 오프셋 보정)
     # ----------------------------------------------------
+    hwnd_dc = None
     try:
         hwnd_dc = win32gui.GetWindowDC(hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(save_bitmap)
-
-        res = ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
-        if res:
-            bmpinfo = save_bitmap.GetInfo()
-            bmpstr = save_bitmap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
-            if np.count_nonzero(img) > 0:
-                img_bgr = img[:, :, :3].copy()
-                return img_bgr
+        if hwnd_dc:
+            img = _safe_gdi_capture(hwnd_dc, offset_x, offset_y, width, height, use_printwindow=False)
+            if img is not None:
+                return img
     except Exception:
         pass
     finally:
-        if save_bitmap is not None:
-            win32gui.DeleteObject(save_bitmap.GetHandle())
-        if save_dc is not None:
-            save_dc.DeleteDC()
-        if mfc_dc is not None:
-            mfc_dc.DeleteDC()
         if hwnd_dc is not None:
             win32gui.ReleaseDC(hwnd, hwnd_dc)
 
     # ----------------------------------------------------
-    # 전략 3: WindowDC BitBlt (타이틀바/테두리 오프셋 정확히 보정)
+    # 전략 3: Desktop Screen BitBlt (화면 좌표 복사)
     # ----------------------------------------------------
-    try:
-        hwnd_dc = win32gui.GetWindowDC(hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(save_bitmap)
-
-        # (offset_x, offset_y)부터 복사하여 타이틀바 제외 순수 클라이언트 영역만 캡처
-        save_dc.BitBlt((0, 0), (width, height), mfc_dc, (offset_x, offset_y), win32con.SRCCOPY)
-        bmpinfo = save_bitmap.GetInfo()
-        bmpstr = save_bitmap.GetBitmapBits(True)
-        img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
-        if np.count_nonzero(img) > 0:
-            img_bgr = img[:, :, :3].copy()
-            return img_bgr
-    except Exception:
-        pass
-    finally:
-        if save_bitmap is not None:
-            win32gui.DeleteObject(save_bitmap.GetHandle())
-        if save_dc is not None:
-            save_dc.DeleteDC()
-        if mfc_dc is not None:
-            mfc_dc.DeleteDC()
-        if hwnd_dc is not None:
-            win32gui.ReleaseDC(hwnd, hwnd_dc)
-
-    # ----------------------------------------------------
-    # 전략 4: Desktop Screen BitBlt (창이 화면에 표시 중인 경우 폴백)
-    # ----------------------------------------------------
+    screen_dc = None
     try:
         screen_dc = win32gui.GetDC(0)
-        mfc_screen = win32ui.CreateDCFromHandle(screen_dc)
-        save_dc = mfc_screen.CreateCompatibleDC()
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_screen, width, height)
-        save_dc.SelectObject(save_bitmap)
-
-        pt = win32gui.ClientToScreen(hwnd, (0, 0)) if client_only else win32gui.GetWindowRect(hwnd)[:2]
-        save_dc.BitBlt((0, 0), (width, height), mfc_screen, pt, win32con.SRCCOPY)
-
-        bmpinfo = save_bitmap.GetInfo()
-        bmpstr = save_bitmap.GetBitmapBits(True)
-        img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
-        if np.count_nonzero(img) > 0:
-            img_bgr = img[:, :, :3].copy()
-            return img_bgr
+        if screen_dc:
+            img = _safe_gdi_capture(screen_dc, pt[0], pt[1], width, height, use_printwindow=False)
+            if img is not None:
+                return img
     except Exception:
         pass
     finally:
-        if save_bitmap is not None:
-            win32gui.DeleteObject(save_bitmap.GetHandle())
-        if save_dc is not None:
-            save_dc.DeleteDC()
-        if mfc_screen is not None:
-            mfc_screen.DeleteDC()
         if screen_dc is not None:
             win32gui.ReleaseDC(0, screen_dc)
 
+    # ----------------------------------------------------
+    # 전략 4: mss 고속 화면 영역 캡처 (DirectX/DWM 보완)
+    # ----------------------------------------------------
+    try:
+        import mss
+        with mss.mss() as sct:
+            monitor = {"left": int(pt[0]), "top": int(pt[1]), "width": int(width), "height": int(height)}
+            shot = sct.grab(monitor)
+            arr = np.array(shot)
+            if arr is not None and np.count_nonzero(arr) > 0:
+                return arr[:, :, :3].copy()
+    except Exception:
+        pass
+
+    _last_capture_error = "모든 캡처 전략에서 검은 화면(0px)이 반환되었거나 화면 접근이 제한되었습니다."
     return None

@@ -30,6 +30,7 @@ def build():
         "--hidden-import", "profile_manager",
         "--hidden-import", "macro_package",
         "--hidden-import", "zipfile",
+        "--hidden-import", "mss",
         "main_gui.py"
     ]
     

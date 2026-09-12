@@ -16,7 +16,8 @@ import numpy as np
 
 import sys
 
-from window_capture import capture_window
+import win32gui
+from window_capture import capture_window, get_window_list, get_last_capture_error, sync_thread_desktop
 from detector import MultiTargetDetector, TargetItem
 from clicker import dispatch_click, send_hardware_click
 from profile_manager import ProfileManager, MacroProfile, get_app_dir
@@ -370,6 +371,8 @@ class MacroEngine:
     # ------------------ 실행 루프 ------------------
 
     def _run_loop(self):
+        sync_thread_desktop()
+        last_err_time = 0.0
         while not self._stop_event.is_set():
             if self.is_paused:
                 time.sleep(0.2)
@@ -378,9 +381,37 @@ class MacroEngine:
             loop_start = time.time()
 
             try:
+                # 0. 대상 창 유효성 검사 및 자동 재연결
+                if not self.hwnd or not win32gui.IsWindow(self.hwnd):
+                    active_p = self.profile_manager.get_active_profile()
+                    reconnected = False
+                    if active_p and active_p.target_window_title:
+                        for w in get_window_list():
+                            if active_p.target_window_title.lower() in w["title"].lower():
+                                self.hwnd = w["hwnd"]
+                                self.log(f"🔄 대상 창 재시작 감지 -> 새 창 핸들({self.hwnd})로 자동 재연결되었습니다.")
+                                reconnected = True
+                                break
+                    if not reconnected:
+                        now = time.time()
+                        if now - last_err_time > 3.0:
+                            last_err_time = now
+                            self.log("⚠️ 대상 창이 종료되었거나 유효하지 않습니다. 창을 다시 열거나 선택해 주세요.")
+                        time.sleep(0.5)
+                        continue
+
                 # 1. 화면 캡처
                 frame = capture_window(self.hwnd)
                 if frame is None:
+                    now = time.time()
+                    if now - last_err_time > 3.0:
+                        last_err_time = now
+                        if win32gui.IsIconic(self.hwnd):
+                            self.log("⚠️ 대상 창이 최소화(아이콘화)되어 있어 화면 캡처가 대기 중입니다. 창을 화면에 복원해 주세요.")
+                        else:
+                            err = get_last_capture_error()
+                            if err:
+                                self.log(f"⚠️ 화면 캡처 대기: {err}")
                     time.sleep(max(0.3, self.interval))
                     continue
 
