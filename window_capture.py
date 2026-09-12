@@ -162,8 +162,8 @@ def capture_window(hwnd: int, client_only: bool = True) -> Optional[np.ndarray]:
         _last_capture_error = f"창 크기 및 좌표 계산 오류: {e}"
         return None
 
-    if width <= 0 or height <= 0:
-        _last_capture_error = f"유효하지 않은 창 크기입니다. ({width}x{height})"
+    if width <= 16 or height <= 16:
+        _last_capture_error = f"창이 최소화되었거나 크기 조절 중입니다. ({width}x{height})"
         return None
 
     def _safe_gdi_capture(src_dc_handle, src_x: int, src_y: int, w: int, h: int, use_printwindow: bool = False, pw_flags: int = 0) -> Optional[np.ndarray]:

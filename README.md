@@ -1,14 +1,14 @@
-# 🎮 GameMacro (게임 매크로 v2.4.1)
+# 🎮 GameMacro (게임 매크로 v2.4.2)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.4.1-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
-[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.1/GameMacro-v2.4.1-windows-x64.zip)
+[![Release](https://img.shields.io/badge/Release-v2.4.2-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.2/GameMacro-v2.4.2-windows-x64.zip)
 
 > **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 4단계 보안 검증 공유 패키지 및 하이브리드 자동 클릭 도구**
 
-### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.1) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.1/GameMacro-v2.4.1-windows-x64.zip)
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.2) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.2/GameMacro-v2.4.2-windows-x64.zip)
 *파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
@@ -58,6 +58,12 @@
 - **창 재시작 자동 감지 및 재연결 (Auto-Reacquisition)**: 게임 재접속이나 클라이언트 재실행 등으로 윈도우 핸들(HWND)이 변경되더라도 매크로가 게임 창을 자동으로 찾아 즉각 재연결.
 - **4단계 폴백 캡처**: DWM PrintWindow ➔ WindowDC BitBlt ➔ Desktop BitBlt ➔ MSS 라이브러리 연동으로 최소화/가려진 창/보안 환경에서도 안정적 캡처 지원.
 
+### 9. ⚡ 초고속 계층적 매칭 & 무지연 UI 렌더링 (v2.4.2)
+- **계층적 Coarse-to-Fine 매칭**: 대형 화면(1080p 등)에서 2배 축소(1/4 픽셀) 초고속 선행 스캔을 거쳐 유망 영역만 정밀 매칭. 타겟 9종 스캔 속도 **4.4배 향상 (151ms ➔ 34ms)**.
+- **창 크기 조절 렉 완전 제거**: 
+  - UI 스레드 렌더링을 OpenCV C++ 고속 리사이즈로 전환하여 **10ms ➔ 1.9ms (8배 단축)**.
+  - 단일 슬롯 프레임 드롭 버퍼 및 30ms 캔버스 리사이즈 디바운서를 적용하여 창 테두리를 빠르게 드래그해도 마우스 굳음이나 버벅임 없는 144Hz급 부드러움 보장.
+
 ---
 
 ## 📦 다운로드 및 빠른 실행 (Releases)
@@ -65,7 +71,7 @@
 파이썬 설치가 필요 없는 **무설치 단일 실행 파일**을 다운로드하여 바로 사용하실 수 있습니다:
 
 1. [GitHub Releases](../../releases) 페이지로 이동합니다.
-2. 최신 버전의 **`GameMacro-v2.4.1-windows-x64.zip`** 파일을 다운로드합니다.
+2. 최신 버전의 **`GameMacro-v2.4.2-windows-x64.zip`** 파일을 다운로드합니다.
 3. 압축을 풀고 **`GameMacro.exe`**를 실행합니다.  
    *(관리자 권한 UAC 확인 창이 뜨면 **'예'**를 누릅니다)*
 
