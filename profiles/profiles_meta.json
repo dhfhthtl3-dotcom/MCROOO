@@ -4,6 +4,10 @@
     {
       "id": "default",
       "name": "기본 매크로"
+    },
+    {
+      "id": "secret_shop",
+      "name": "⚡ 비상런 (에픽세븐 비밀상점)"
     }
   ]
 }

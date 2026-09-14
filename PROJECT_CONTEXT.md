@@ -118,3 +118,30 @@
     - `window_capture.py`: 창 크기 조절 과도기(너비/높이 <= 16) 안전 가드 적용.
     - `test_suite.py` 전체 15개 단위 테스트 통과 (`ALL PASS`).
     - `GameMacro.exe` 재빌드 및 `release/GameMacro-v2.4.2-windows-x64.zip` 배포 패키징 완료.
+- **에픽세븐 비밀상점(비상런) 자동화, 창 크기 16:9 맞춤 및 마우스 드래그 모듈 완성 (v2.5.0)**:
+  - **창 크기 16:9 클라이언트 자동 맞춤 (`window_capture.py`: `resize_window_client`)**:
+    - `GetWindowRect`와 `GetClientRect`의 기하학적 차이를 분석하여 OS 타이틀바 및 테두리 두께를 역산.
+    - 클라이언트 해상도를 16:9 표준(`1600x900`, `1280x720`)으로 픽셀 단위 정밀 보정하여 화면 잘림 현상 원천 해결.
+    - GUI 좌측 패널에 `[📐 16:9 맞춤 (1600x900)]`, `[📐 1280x720]` 원클릭 버튼 제공.
+  - **하드웨어/백그라운드 마우스 드래그 & 스와이프 (`clicker.py`)**:
+    - `send_hardware_drag`: `SendInput` 기반 14단계 3차 에르미트/선형 보간 마우스 드래그 및 마우스 커서 원위치 복원 지원.
+    - `send_postmessage_drag`: 비활성 창에 `WM_MOUSEMOVE` 메시지 스트림 전송.
+    - `dispatch_drag`: 클릭 모드와 통합된 일관된 드래그 디스패치.
+  - **비상런 전용 코어 엔진 (`secret_shop_engine.py`)**:
+    - `SecretShopStats`: 새로고침 횟수, 소모 하늘석, 성약의 책갈피(수량/골드), 신비의 메달(수량/골드), 총 소모 골드, 소요 시간 실시간 집계.
+    - `SecretShopEngine`:
+      - 1페이지 스캔 및 구매 ➔ 하단 드래그 스와이프 ➔ 2페이지 스캔 및 구매 ➔ 새로고침 확인 루프.
+      - 검증된 Solunium 상대 좌표 체계 및 배율 스케일링(`scale_candidates = [scale*0.92, scale, scale*1.08, 1.0]`) 적용으로 100% 탐색 성공률 확보.
+      - 템플릿 로딩 시 Windows 한글 경로 이슈를 원천 방지하는 `cv2.imdecode` 스트림 로더 내장.
+  - **프로필 연동 및 전용 대시보드 (`profile_manager.py`, `main_gui.py`)**:
+    - `profiles/secret_shop.json` 기본 생성 및 메타데이터 자동 등록 (`ensure_secret_shop_profile`).
+    - 프로필 선택 시 일반 타겟 카드 뷰 대신 **실시간 비상런 6대 지표 대시보드**(새로고침, 하늘석, 성약, 신비, 골드, 시간)로 자동 전환 (`update_view_mode`).
+    - F9 단축키로 비상런 시작/정지 토글, ESC 긴급 중지 지원.
+  - **단위 테스트 무결성 검증 (`test_suite.py`)**:
+    - `test_resize_window_client`, `test_drag_clicker`, `test_secret_shop_stats`, `test_secret_shop_engine_detection_and_cycle` 추가.
+    - 총 19개 단위 테스트 100% 통과 (`Ran 19 tests in 2.367s - OK`).
+  - **기존 9개 버튼 및 프로필 100% 무손실 보존**:
+    - `profiles/default.json`에 등록된 실제 게임 버튼 9종 무손실 유지.
+    - `build_exe.py`에 `secret_shop_engine`, `clicker`, `window_capture`, `image_matcher` 히든 임포트 및 템플릿 복사 파이프라인 반영.
+
+

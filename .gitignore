@@ -20,6 +20,7 @@ test_targets.json
 *.log
 *.png
 !templates/*.png
+!templates/**/*.png
 !docs/*.png
 !assets/*.png
 

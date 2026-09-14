@@ -460,9 +460,125 @@ class TestPinpointAndAutoTapSuite(unittest.TestCase):
             if os.path.exists(test_dir):
                 shutil.rmtree(test_dir, ignore_errors=True)
 
+    def test_resize_window_client(self):
+        """창 크기 16:9 해상도 맞춤 기능 검증"""
+        from window_capture import resize_window_client
+        # 유효하지 않은 HWND 처리
+        ok, msg = resize_window_client(0, 1600, 900)
+        self.assertFalse(ok)
+        self.assertIn("유효하지 않은", msg)
+
+    def test_drag_clicker(self):
+        """마우스 드래그 / 스와이프 디스패처 동작 검증"""
+        from clicker import dispatch_drag, send_hardware_drag, send_postmessage_drag
+        # 유효하지 않은 창 핸들 시 안전하게 False 반환 확인
+        self.assertFalse(dispatch_drag(0, 100, 300, 100, 100, mode="hardware"))
+        self.assertFalse(send_postmessage_drag(0, 100, 300, 100, 100))
+        self.assertFalse(send_hardware_drag(0, 100, 300, 100, 100))
+
+    def test_secret_shop_stats(self):
+        """비상런 통계 수집기 계산 정확성 검증"""
+        from secret_shop_engine import SecretShopStats
+        stats = SecretShopStats()
+        self.assertEqual(stats.refreshes, 0)
+        self.assertEqual(stats.skystones_spent, 0)
+        self.assertEqual(stats.total_gold, 0)
+
+        # 20회 갱신, 성약 3회(15개), 신비 1회(50개) 시뮬레이션
+        stats.refreshes = 20
+        stats.covenant_count = 3
+        stats.mystic_count = 1
+
+        self.assertEqual(stats.skystones_spent, 60) # 20 * 3
+        self.assertEqual(stats.covenant_gold, 3 * 184000)
+        self.assertEqual(stats.mystic_gold, 1 * 280000)
+        self.assertEqual(stats.total_gold, 3 * 184000 + 1 * 280000)
+
+        d = stats.to_dict()
+        self.assertEqual(d["refreshes"], 20)
+        self.assertEqual(d["skystones_spent"], 60)
+        self.assertEqual(d["total_gold"], 832000)
+
+        stats.reset()
+        self.assertEqual(stats.refreshes, 0)
+        self.assertEqual(stats.total_gold, 0)
+
+    def test_secret_shop_engine_detection_and_cycle(self):
+        """비상런 엔진 템플릿 로드, 아이템 감지 및 1사이클 시뮬레이션 검증"""
+        from secret_shop_engine import SecretShopEngine
+        import secret_shop_engine
+
+        engine = SecretShopEngine()
+        # 템플릿 최소 2종(성약, 신비) 이상 로드되었는지 확인
+        self.assertGreaterEqual(len(engine.templates), 2, "성약 및 신비 템플릿이 로드되어야 합니다.")
+        self.assertIn("covenant", engine.templates)
+        self.assertIn("mystic", engine.templates)
+
+        # 가상 1600x900 화면 생성 후 성약 템플릿 합성
+        test_screen = np.zeros((900, 1600, 3), dtype=np.uint8)
+        cov_img = engine.templates["covenant"]["image"]
+        ch, cw = cov_img.shape[:2]
+        # 좌측 상점 슬롯 위치 (200, 250)에 성약 아이콘 배치
+        test_screen[250:250+ch, 200:200+cw] = cov_img
+
+        # 엔진 템플릿 매칭 검증
+        engine.match_threshold = 0.70
+        detected = engine.find_items_in_frame(test_screen, ["covenant", "mystic"])
+        self.assertGreaterEqual(len(detected), 1, "합성된 성약의 책갈피가 감지되어야 합니다.")
+        found_cov = [d for d in detected if d["type"] == "covenant"]
+        self.assertTrue(len(found_cov) > 0)
+        self.assertAlmostEqual(found_cov[0]["x"], 200 + cw // 2, delta=5)
+        self.assertAlmostEqual(found_cov[0]["y"], 250 + ch // 2, delta=5)
+
+        # 1사이클 모의 실행 검증
+        clicks = []
+        drags = []
+        orig_capture = secret_shop_engine.capture_window
+        orig_click = secret_shop_engine.dispatch_click
+        orig_drag = secret_shop_engine.dispatch_drag
+
+        try:
+            secret_shop_engine.capture_window = lambda hwnd: test_screen
+            secret_shop_engine.dispatch_click = lambda hwnd, x, y, mode="hardware": clicks.append((x, y)) or True
+            secret_shop_engine.dispatch_drag = lambda hwnd, x1, y1, x2, y2, mode="hardware", duration=0.35, steps=14: drags.append((x1, y1, x2, y2)) or True
+
+            # 윈도우 모킹 및 짧은 딜레이
+            import win32gui
+            orig_is_win = win32gui.IsWindow
+            orig_get_client = win32gui.GetClientRect
+            win32gui.IsWindow = lambda h: True
+            win32gui.GetClientRect = lambda h: (0, 0, 1600, 900)
+
+            engine.delay_post_refresh = 0.01
+            engine.delay_post_drag = 0.01
+            engine.delay_click = 0.01
+            engine.max_refreshes = 1
+            engine.hwnd = 99999
+
+            engine.start(hwnd=99999)
+            t_start = time.time()
+            while time.time() - t_start < 2.0 and engine.stats.refreshes < 1:
+                time.sleep(0.05)
+            engine.stop()
+
+
+            # 새로고침 1회 수행 확인
+            self.assertEqual(engine.stats.refreshes, 1)
+            # 드래그 1회 이상 수행 확인
+            self.assertGreaterEqual(len(drags), 1)
+            # 클릭(구매 + 확인 + 새로고침 + 새로고침확인) 수행 확인
+            self.assertGreaterEqual(len(clicks), 2)
+        finally:
+            secret_shop_engine.capture_window = orig_capture
+            secret_shop_engine.dispatch_click = orig_click
+            secret_shop_engine.dispatch_drag = orig_drag
+            win32gui.IsWindow = orig_is_win
+            win32gui.GetClientRect = orig_get_client
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

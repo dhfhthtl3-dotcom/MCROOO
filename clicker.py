@@ -211,6 +211,180 @@ def send_background_postmessage(
         return False
 
 
+def send_hardware_drag(
+    hwnd: int,
+    client_x1: int,
+    client_y1: int,
+    client_x2: int,
+    client_y2: int,
+    duration: float = 0.35,
+    steps: int = 14,
+    restore_cursor: bool = True
+) -> bool:
+    """
+    [하드웨어 수준 마우스 드래그 / 스와이프]
+    SendInput을 통해 (client_x1, client_y1)부터 (client_x2, client_y2)까지
+    부드러운 다단계 보간 드래그를 수행하고 마우스 커서를 원위치로 복귀시킵니다.
+    """
+    if not win32gui.IsWindow(hwnd):
+        return False
+
+    try:
+        orig_x, orig_y = win32api.GetCursorPos()
+
+        # 화면 절대 좌표로 변환
+        screen_x1, screen_y1 = win32gui.ClientToScreen(hwnd, (client_x1, client_y1))
+        screen_x2, screen_y2 = win32gui.ClientToScreen(hwnd, (client_x2, client_y2))
+
+        # 1. 시작점으로 커서 이동
+        try:
+            win32api.SetCursorPos((screen_x1, screen_y1))
+        except Exception:
+            pass
+
+        abs_x1, abs_y1 = to_virtual_screen_absolute(screen_x1, screen_y1)
+        extra = ctypes.c_ulong(0)
+        inp_move = INPUT()
+        inp_move.type = INPUT_MOUSE
+        inp_move.u.mi = MOUSEINPUT(
+            abs_x1, abs_y1, 0,
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+            0, ctypes.pointer(extra)
+        )
+        ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_move), ctypes.sizeof(inp_move))
+        time.sleep(0.02)
+
+        # 2. 마우스 왼쪽 버튼 다운
+        inp_down = INPUT()
+        inp_down.type = INPUT_MOUSE
+        inp_down.u.mi = MOUSEINPUT(
+            abs_x1, abs_y1, 0,
+            MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_LEFTDOWN,
+            0, ctypes.pointer(extra)
+        )
+        ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_down), ctypes.sizeof(inp_down))
+        time.sleep(0.02)
+
+        # 3. 보간 이동 (Linear Interpolation Drag)
+        step_delay = max(0.005, duration / max(1, steps))
+        for step in range(1, steps + 1):
+            t = step / float(steps)
+            cur_sx = int(screen_x1 + (screen_x2 - screen_x1) * t)
+            cur_sy = int(screen_y1 + (screen_y2 - screen_y1) * t)
+
+            try:
+                win32api.SetCursorPos((cur_sx, cur_sy))
+            except Exception:
+                pass
+
+            cur_abs_x, cur_abs_y = to_virtual_screen_absolute(cur_sx, cur_sy)
+            inp_step = INPUT()
+            inp_step.type = INPUT_MOUSE
+            inp_step.u.mi = MOUSEINPUT(
+                cur_abs_x, cur_abs_y, 0,
+                MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                0, ctypes.pointer(extra)
+            )
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_step), ctypes.sizeof(inp_step))
+            time.sleep(step_delay)
+
+        # 4. 마우스 왼쪽 버튼 업
+        abs_x2, abs_y2 = to_virtual_screen_absolute(screen_x2, screen_y2)
+        inp_up = INPUT()
+        inp_up.type = INPUT_MOUSE
+        inp_up.u.mi = MOUSEINPUT(
+            abs_x2, abs_y2, 0,
+            MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_LEFTUP,
+            0, ctypes.pointer(extra)
+        )
+        ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_up), ctypes.sizeof(inp_up))
+        time.sleep(0.02)
+
+        # 5. 원래 커서 복원
+        if restore_cursor:
+            time.sleep(0.01)
+            try:
+                win32api.SetCursorPos((orig_x, orig_y))
+            except Exception:
+                pass
+            orig_abs_x, orig_abs_y = to_virtual_screen_absolute(orig_x, orig_y)
+            inp_restore = INPUT()
+            inp_restore.type = INPUT_MOUSE
+            inp_restore.u.mi = MOUSEINPUT(
+                orig_abs_x, orig_abs_y, 0,
+                MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                0, ctypes.pointer(extra)
+            )
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_restore), ctypes.sizeof(inp_restore))
+
+        return True
+    except Exception as e:
+        print(f"[Clicker] SendInput Drag 오류: {e}")
+        return False
+
+
+def send_postmessage_drag(
+    hwnd: int,
+    client_x1: int,
+    client_y1: int,
+    client_x2: int,
+    client_y2: int,
+    duration: float = 0.35,
+    steps: int = 14
+) -> bool:
+    """[비활성 백그라운드 PostMessage 드래그]"""
+    if not win32gui.IsWindow(hwnd):
+        return False
+
+    try:
+        lp_start = make_lparam(client_x1, client_y1)
+        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp_start)
+        time.sleep(0.02)
+        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp_start)
+        time.sleep(0.02)
+
+        step_delay = max(0.005, duration / max(1, steps))
+        for step in range(1, steps + 1):
+            t = step / float(steps)
+            cur_x = int(client_x1 + (client_x2 - client_x1) * t)
+            cur_y = int(client_y1 + (client_y2 - client_y1) * t)
+            lp_cur = make_lparam(cur_x, cur_y)
+            win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp_cur)
+            time.sleep(step_delay)
+
+        lp_end = make_lparam(client_x2, client_y2)
+        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp_end)
+        return True
+    except Exception as e:
+        print(f"[Clicker] PostMessage Drag 오류: {e}")
+        return False
+
+
+def dispatch_drag(
+    hwnd: int,
+    client_x1: int,
+    client_y1: int,
+    client_x2: int,
+    client_y2: int,
+    mode: str = "hardware",
+    duration: float = 0.35,
+    steps: int = 14
+) -> bool:
+    """사용자 선택 모드에 따라 마우스 드래그를 실행합니다."""
+    if mode == "postmessage":
+        return send_postmessage_drag(hwnd, client_x1, client_y1, client_x2, client_y2, duration=duration, steps=steps)
+    elif mode == "activate":
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(0.04)
+        except Exception:
+            pass
+        return send_hardware_drag(hwnd, client_x1, client_y1, client_x2, client_y2, duration=duration, steps=steps, restore_cursor=True)
+    else:
+        return send_hardware_drag(hwnd, client_x1, client_y1, client_x2, client_y2, duration=duration, steps=steps, restore_cursor=True)
+
+
 def dispatch_click(
     hwnd: int,
     client_x: int,
@@ -226,3 +400,4 @@ def dispatch_click(
         return send_background_postmessage(hwnd, client_x, client_y, jitter=jitter)
     else:
         return send_hardware_click(hwnd, client_x, client_y, restore_cursor=True, jitter=jitter)
+

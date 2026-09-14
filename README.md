@@ -1,14 +1,14 @@
-# 🎮 GameMacro (게임 매크로 v2.4.2)
+# 🎮 GameMacro (게임 매크로 v2.5.0)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.4.2-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
-[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.2/GameMacro-v2.4.2-windows-x64.zip)
+[![Release](https://img.shields.io/badge/Release-v2.5.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.0/GameMacro-v2.5.0-windows-x64.zip)
 
-> **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 4단계 보안 검증 공유 패키지 및 하이브리드 자동 클릭 도구**
+> **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 에픽세븐 비상런 전자동화, 16:9 창 맞춤 및 하이브리드 제어 도구**
 
-### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.4.2) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.4.2/GameMacro-v2.4.2-windows-x64.zip)
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.5.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.0/GameMacro-v2.5.0-windows-x64.zip)
 *파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
@@ -64,6 +64,24 @@
   - UI 스레드 렌더링을 OpenCV C++ 고속 리사이즈로 전환하여 **10ms ➔ 1.9ms (8배 단축)**.
   - 단일 슬롯 프레임 드롭 버퍼 및 30ms 캔버스 리사이즈 디바운서를 적용하여 창 테두리를 빠르게 드래그해도 마우스 굳음이나 버벅임 없는 144Hz급 부드러움 보장.
 
+### 10. ⚡ 에픽세븐 비밀상점(비상런) 전자동화 & 실시간 대시보드 (v2.5.0)
+- **원클릭 비상런 전환**: 상단 프로필에서 `[⚡ 비상런 (에픽세븐 비밀상점)]` 선택 시 즉각 전용 뷰로 자동 전환.
+- **2페이지 풀스캔 & 자동 구매**:
+  - 1페이지 성약의 책갈피 / 신비의 메달 감지 및 구매
+  - 하단 스와이프 드래그 후 2페이지 숨겨진 목록 정밀 스캔 및 구매
+  - 새로고침 확인 팝업 자동 승인 루프
+- **실시간 6대 지표 대시보드**: 새로고침 횟수, 소모 하늘석, 성약(개수/소모골드), 신비(개수/소모골드), 총 소모 골드, 소요 시간 실시간 시각화.
+- **다양한 안전 옵션**: 목표 새로고침 횟수 도달 시 자동 정지, 성약/신비 선택적 구매 ON/OFF 지원.
+- **단축키 완비**: `F9` (비상런 즉시 시작/정지), `ESC` (모든 매크로 긴급 중지).
+
+### 11. 📐 16:9 창 크기 자동 맞춤 & 마우스 드래그/스와이프 (v2.5.0)
+- **창 크기 16:9 클라이언트 자동 맞춤**:
+  - 창 크기가 맞지 않아 이미지가 잘리거나 비율이 깨지는 현상 원천 해결.
+  - GUI 좌측 패널의 `[📐 16:9 맞춤 (1600x900)]` 또는 `[📐 1280x720]` 원클릭 버튼을 누르면 OS 타이틀바/테두리 두께를 역산하여 내부 게임 클라이언트 화면을 완벽한 16:9 해상도로 칼같이 맞춰줍니다.
+- **초정밀 마우스 스와이프/드래그 엔진**:
+  - `SendInput` 기반 14단계 부드러운 선형 보간 드래그 및 작업 종료 후 원래 마우스 커서 위치 즉각 복원.
+  - 비활성 백그라운드 창을 위한 `PostMessage` 스와이프 완벽 지원.
+
 ---
 
 ## 📦 다운로드 및 빠른 실행 (Releases)
@@ -71,11 +89,11 @@
 파이썬 설치가 필요 없는 **무설치 단일 실행 파일**을 다운로드하여 바로 사용하실 수 있습니다:
 
 1. [GitHub Releases](../../releases) 페이지로 이동합니다.
-2. 최신 버전의 **`GameMacro-v2.4.2-windows-x64.zip`** 파일을 다운로드합니다.
+2. 최신 버전의 **`GameMacro-v2.5.0-windows-x64.zip`** 파일을 다운로드합니다.
 3. 압축을 풀고 **`GameMacro.exe`**를 실행합니다.  
    *(관리자 권한 UAC 확인 창이 뜨면 **'예'**를 누릅니다)*
 
-> 💡 **알림**: 사용자가 등록한 캡처 버튼(`templates/`)과 설정(`targets_config.json`), 프로필(`profiles/`)은 `GameMacro.exe`가 위치한 폴더에 자동으로 영구 보관됩니다.
+> 💡 **알림**: 사용자가 등록한 캡처 버튼(`templates/`), 비상런 에셋(`templates/secret_shop/`), 설정(`targets_config.json`), 프로필(`profiles/`)은 `GameMacro.exe`가 위치한 폴더에 자동으로 영구 보관됩니다.
 
 ---
 
@@ -116,7 +134,7 @@ python build_exe.py
 
 ## 🧪 단위 테스트 (Unit Tests)
 
-5개 핵심 기능에 대한 자동화 테스트 스위트가 포함되어 있습니다:
+19개 핵심 기능에 대한 자동화 테스트 스위트가 포함되어 있습니다:
 ```powershell
 python test_suite.py
 ```
@@ -125,6 +143,11 @@ python test_suite.py
 - 매크로 코어 루프 및 개별 쿨다운 검증 (`PASS`)
 - 타겟 설정 및 이미지 디스크 저장/복원 무결성 검증 (`PASS`)
 - 해상도 확대(1.5x)/축소(0.8x) 멀티 스케일 동적 매칭 검증 (`PASS`)
+- 4단계 보안 검증 및 Zip Slip / Target Guard 검증 (`PASS`)
+- 연속 탭 및 이미지 특정 부위 클릭 검증 (`PASS`)
+- 16:9 클라이언트 창 크기 정밀 맞춤 검증 (`PASS`)
+- 마우스 스와이프 드래그 엔진 검증 (`PASS`)
+- 비상런 통계 및 구매/새로고침 사이클 검증 (`PASS`)
 
 ---
 

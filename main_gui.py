@@ -16,11 +16,14 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from window_capture import get_window_list, capture_window, get_last_capture_error
+from window_capture import get_window_list, capture_window, get_last_capture_error, resize_window_client
 from detector import MultiTargetDetector, TargetItem
-from clicker import dispatch_click
+from clicker import dispatch_click, dispatch_drag
 from macro_core import MacroEngine
 from macro_package import export_macro_package, inspect_and_verify_package, import_macro_package
+from secret_shop_engine import SecretShopEngine, SecretShopStats
+import win32gui
+
 
 import ctypes
 
@@ -624,11 +627,22 @@ class MacroApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("🎯 다중 버튼 감지 및 하이브리드 자동 클릭 매크로 v2.4.2 (초고속 최적화)")
-        self.geometry("1240x820")
-        self.minsize(1100, 720)
+        self.title("🎯 다중 버튼 감지 및 에픽세븐 비상런 자동화 매크로 v2.5.0")
+        self.geometry("1260x830")
+        self.minsize(1120, 720)
 
         self.engine = MacroEngine()
+        # 비상런 기본 프로필 등록 보장
+        self.engine.profile_manager.ensure_secret_shop_profile()
+
+        # 비상런 전용 엔진 초기화 및 콜백 바인딩
+        from profile_manager import get_app_dir
+        self.secret_shop_engine = SecretShopEngine(templates_dir=os.path.join(get_app_dir(), "templates", "secret_shop"))
+        self.secret_shop_engine.on_log = self.append_log
+        self.secret_shop_engine.on_stats_update = self.on_secret_shop_stats_updated
+        self.secret_shop_engine.on_status_change = self.on_status_updated
+        self.secret_shop_engine.on_frame_preview = self.on_frame_updated
+
         self.windows_data = []
         self.last_frame: Optional[np.ndarray] = None
         self.target_cards = {}
@@ -652,17 +666,24 @@ class MacroApp(ctk.CTk):
         self.refresh_window_list()
         self.render_target_list()
         self.sync_autotap_ui()
+        self.update_view_mode()
+
+        # 단축키 바인딩 (F9: 시작/정지, ESC: 긴급 정지)
+        self.bind_all("<F9>", lambda e: self.toggle_current_start())
+        self.bind_all("<Escape>", lambda e: self.stop_all())
 
     def setup_ui(self):
+
         # 1. 최상단 헤더 바
         header = ctk.CTkFrame(self, height=50, corner_radius=0, fg_color="#181824")
         header.pack(fill="x", side="top")
 
         ctk.CTkLabel(
             header,
-            text="🎯 Multi-Button Frame Detector & Hybrid Clicker v2.4.2",
+            text="🎯 Multi-Button Frame Detector & Epic Seven Secret Shop v2.5.0",
             font=ctk.CTkFont(size=17, weight="bold")
         ).pack(side="left", padx=20, pady=10)
+
 
         self.status_badge = ctk.CTkLabel(
             header,
@@ -802,8 +823,31 @@ class MacroApp(ctk.CTk):
         ctk.CTkButton(win_btn_row, text="🔄 목록 갱신", width=120, command=self.refresh_window_list).pack(side="left", padx=(0, 6))
         ctk.CTkButton(win_btn_row, text="📷 화면 캡처", width=120, fg_color="#2980b9", hover_color="#1f618d", command=self.test_capture_window).pack(side="left")
 
+        # 창 크기 16:9 해상도 자동 맞춤 버튼 (창 잘림 방지)
+        resize_btn_row = ctk.CTkFrame(col1, fg_color="transparent")
+        resize_btn_row.pack(fill="x", padx=12, pady=(2, 6))
+        ctk.CTkButton(
+            resize_btn_row,
+            text="📐 16:9 맞춤 (1600x900)",
+            width=140,
+            fg_color="#34495e",
+            hover_color="#2c3e50",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.on_resize_window_client(1600, 900)
+        ).pack(side="left", padx=(0, 6), fill="x", expand=True)
+        ctk.CTkButton(
+            resize_btn_row,
+            text="📐 1280x720",
+            width=90,
+            fg_color="#34495e",
+            hover_color="#2c3e50",
+            font=ctk.CTkFont(size=11),
+            command=lambda: self.on_resize_window_client(1280, 720)
+        ).pack(side="left")
+
         # 클릭 방식 선택 (핵심!)
         ctk.CTkLabel(col1, text="2. 클릭 모드 (엔진)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(15, 4))
+
         
         self.click_mode_var = ctk.StringVar(value="hardware")
         
@@ -966,7 +1010,7 @@ class MacroApp(ctk.CTk):
             font=ctk.CTkFont(size=15, weight="bold"),
             fg_color="#2ecc71",
             hover_color="#27ae60",
-            command=self.toggle_macro_start
+            command=self.toggle_current_start
         )
         self.start_btn.pack(fill="x", pady=(0, 6))
 
@@ -981,18 +1025,22 @@ class MacroApp(ctk.CTk):
         self.pause_btn.pack(fill="x")
 
         # ==========================================
-        # [컬럼 2] 등록된 버튼 관리자 (380px)
+        # [컬럼 2] 등록된 버튼 관리자 / 비상런 대시보드 (380px)
         # ==========================================
         col2 = ctk.CTkFrame(main_layout, width=380)
         col2.pack(side="left", fill="both", padx=(0, 10))
         col2.pack_propagate(False)
 
-        col2_header = ctk.CTkFrame(col2, fg_color="transparent")
+        # [컬럼 2-A: 일반 매크로 버튼 목록 컨테이너]
+        self.general_target_container = ctk.CTkFrame(col2, fg_color="transparent")
+        self.general_target_container.pack(fill="both", expand=True)
+
+        col2_header = ctk.CTkFrame(self.general_target_container, fg_color="transparent")
         col2_header.pack(fill="x", padx=12, pady=(12, 6))
         
         ctk.CTkLabel(col2_header, text="등록된 버튼 목록", font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
 
-        add_btn_row = ctk.CTkFrame(col2, fg_color="transparent")
+        add_btn_row = ctk.CTkFrame(self.general_target_container, fg_color="transparent")
         add_btn_row.pack(fill="x", padx=12, pady=(0, 8))
 
         ctk.CTkButton(
@@ -1012,8 +1060,13 @@ class MacroApp(ctk.CTk):
         ).pack(side="left")
 
         # 타겟 카드 목록 스크롤 프레임
-        self.targets_scroll = ctk.CTkScrollableFrame(col2)
+        self.targets_scroll = ctk.CTkScrollableFrame(self.general_target_container)
         self.targets_scroll.pack(fill="both", expand=True, padx=8, pady=4)
+
+        # [컬럼 2-B: 비상런 대시보드 컨테이너 (비상런 프로필 선택 시 전환)]
+        self.secret_shop_container = ctk.CTkFrame(col2, fg_color="transparent")
+        self.setup_secret_shop_ui()
+
 
         # ==========================================
         # [컬럼 3] 실시간 모니터링 & 활동 로그 (잔여 폭)
@@ -1090,8 +1143,13 @@ class MacroApp(ctk.CTk):
                         sel_str = f"[{w['hwnd']}] {w['title'][:32]} ({w['width']}x{w['height']})"
                         self.win_combobox.set(sel_str)
                         self.engine.set_target_window(w['hwnd'])
+                        if hasattr(self, "secret_shop_engine"):
+                            self.secret_shop_engine.hwnd = w['hwnd']
                         self.append_log(f"타겟 창 자동 복원: {w['title']}")
                         break
+
+            self.update_view_mode()
+
 
     def sync_autotap_ui(self):
         self.autotap_enabled_var.set(self.engine.auto_tap_enabled)
@@ -1532,11 +1590,14 @@ class MacroApp(ctk.CTk):
             key = f"[{w['hwnd']}]"
             if choice_str.startswith(key):
                 self.engine.set_target_window(w['hwnd'])
+                if hasattr(self, "secret_shop_engine"):
+                    self.secret_shop_engine.hwnd = w['hwnd']
                 active_p = self.engine.get_active_profile()
                 active_p.target_window_title = w['title']
                 self.engine.profile_manager.save_active_profile()
                 self.append_log(f"타겟 창 지정: {w['title']} (HWND: {w['hwnd']})")
                 return
+
 
     def test_capture_window(self):
         if not self.engine.hwnd:
@@ -1697,6 +1758,253 @@ class MacroApp(ctk.CTk):
             color = color_map.get(status_text, "#555555")
             self.status_badge.configure(text=status_text, fg_color=color)
         self.after(0, _update)
+
+    # ------------------ 비상런 및 창 제어 ------------------
+
+    def setup_secret_shop_ui(self):
+        """비상런 전용 대시보드 UI 구성"""
+        # 상단 타이틀
+        sh_hdr = ctk.CTkFrame(self.secret_shop_container, fg_color="transparent")
+        sh_hdr.pack(fill="x", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            sh_hdr,
+            text="⚡ 비상런 (에픽세븐 비밀상점)",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#f1c40f"
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            self.secret_shop_container,
+            text="성약의 책갈피 & 신비의 메달 자동 탐색·구매 루프",
+            font=ctk.CTkFont(size=11),
+            text_color="#aaaabb"
+        ).pack(anchor="w", padx=14, pady=(0, 6))
+
+        # 해상도 16:9 원클릭 맞춤 퀵 버튼
+        ctk.CTkButton(
+            self.secret_shop_container,
+            text="📐 에픽세븐 창 16:9 (1600x900) 자동 맞춤",
+            height=30,
+            fg_color="#2980b9",
+            hover_color="#1f618d",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=lambda: self.on_resize_window_client(1600, 900)
+        ).pack(fill="x", padx=12, pady=(0, 6))
+
+        # 6대 핵심 지표 카드 대시보드
+        stats_frame = ctk.CTkFrame(self.secret_shop_container, fg_color="#1a1a28", corner_radius=8)
+        stats_frame.pack(fill="x", padx=10, pady=4)
+
+        ctk.CTkLabel(
+            stats_frame,
+            text="📊 실시간 획득 현황",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#3498db"
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        grid_box = ctk.CTkFrame(stats_frame, fg_color="transparent")
+        grid_box.pack(fill="x", padx=6, pady=(0, 6))
+        grid_box.columnconfigure((0, 1), weight=1)
+
+        # 카드 1: 새로고침
+        c1 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c1.grid(row=0, column=0, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c1, text="🔄 새로고침", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_refreshes = ctk.CTkLabel(c1, text="0 회", font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ecc71")
+        self.lbl_stat_refreshes.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 카드 2: 소모 하늘석
+        c2 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c2.grid(row=0, column=1, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c2, text="💎 소모 하늘석", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_skystones = ctk.CTkLabel(c2, text="0 개", font=ctk.CTkFont(size=14, weight="bold"), text_color="#00d2d3")
+        self.lbl_stat_skystones.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 카드 3: 성약의 책갈피
+        c3 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c3.grid(row=1, column=0, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c3, text="📜 성약의 책갈피", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_covenant = ctk.CTkLabel(c3, text="0 회 (0개)", font=ctk.CTkFont(size=13, weight="bold"), text_color="#54a0ff")
+        self.lbl_stat_covenant.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 카드 4: 신비의 메달
+        c4 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c4.grid(row=1, column=1, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c4, text="🔮 신비의 메달", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_mystic = ctk.CTkLabel(c4, text="0 회 (0개)", font=ctk.CTkFont(size=13, weight="bold"), text_color="#ff9f43")
+        self.lbl_stat_mystic.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 카드 5: 총 소모 골드
+        c5 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c5.grid(row=2, column=0, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c5, text="💰 총 소모 골드", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_gold = ctk.CTkLabel(c5, text="0 G", font=ctk.CTkFont(size=13, weight="bold"), text_color="#feca57")
+        self.lbl_stat_gold.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 카드 6: 진행 시간
+        c6 = ctk.CTkFrame(grid_box, fg_color="#252538", corner_radius=6)
+        c6.grid(row=2, column=1, padx=4, pady=3, sticky="ew")
+        ctk.CTkLabel(c6, text="⏱️ 진행 시간", font=ctk.CTkFont(size=11), text_color="#aaaabb").pack(anchor="w", padx=8, pady=(4, 0))
+        self.lbl_stat_elapsed = ctk.CTkLabel(c6, text="00분 00초", font=ctk.CTkFont(size=13, weight="bold"), text_color="#c8d6e5")
+        self.lbl_stat_elapsed.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 세부 옵션 프레임
+        opt_frame = ctk.CTkFrame(self.secret_shop_container, fg_color="#1f1f2e", corner_radius=8)
+        opt_frame.pack(fill="x", padx=10, pady=4)
+
+        ctk.CTkLabel(opt_frame, text="⚙️ 구매 및 동작 설정", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=10, pady=(6, 4))
+
+        self.secret_buy_cov_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opt_frame,
+            text="성약의 책갈피 구매 (184,000 G)",
+            variable=self.secret_buy_cov_var,
+            font=ctk.CTkFont(size=12)
+        ).pack(anchor="w", padx=12, pady=2)
+
+        self.secret_buy_mys_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opt_frame,
+            text="신비의 메달 구매 (280,000 G)",
+            variable=self.secret_buy_mys_var,
+            font=ctk.CTkFont(size=12)
+        ).pack(anchor="w", padx=12, pady=2)
+
+        self.secret_buy_fb_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            opt_frame,
+            text="우정의 책갈피 구매 (18,000 G)",
+            variable=self.secret_buy_fb_var,
+            font=ctk.CTkFont(size=12)
+        ).pack(anchor="w", padx=12, pady=2)
+
+        limit_row = ctk.CTkFrame(opt_frame, fg_color="transparent")
+        limit_row.pack(fill="x", padx=12, pady=(6, 8))
+        ctk.CTkLabel(limit_row, text="목표 갱신 횟수:", font=ctk.CTkFont(size=12)).pack(side="left")
+        self.secret_max_refresh_entry = ctk.CTkEntry(limit_row, width=70, height=26)
+        self.secret_max_refresh_entry.insert(0, "0")
+        self.secret_max_refresh_entry.pack(side="left", padx=6)
+        ctk.CTkLabel(limit_row, text="회 (0: 무제한)", font=ctk.CTkFont(size=11), text_color="#aaaaaa").pack(side="left")
+
+        # 하단 퀵 액션
+        act_row = ctk.CTkFrame(self.secret_shop_container, fg_color="transparent")
+        act_row.pack(fill="x", padx=10, pady=4)
+        ctk.CTkButton(
+            act_row,
+            text="🔄 통계 초기화",
+            width=110,
+            height=28,
+            fg_color="#555566",
+            hover_color="#666677",
+            font=ctk.CTkFont(size=11),
+            command=self.reset_secret_shop_stats
+        ).pack(side="left")
+
+    def update_view_mode(self):
+        """활성 프로필의 종류(일반 vs 비상런)에 따라 UI 뷰를 동적으로 전환"""
+        active_p = self.engine.get_active_profile()
+        is_shop = (getattr(active_p, "profile_type", "general") == "secret_shop")
+
+        if is_shop:
+            self.general_target_container.pack_forget()
+            self.secret_shop_container.pack(fill="both", expand=True)
+
+            if self.secret_shop_engine.is_running:
+                self.start_btn.configure(text="⏹ 비상런 정지 (ESC)", fg_color="#e74c3c", hover_color="#c0392b")
+            else:
+                self.start_btn.configure(text="▶ 비상런 시작 (F9)", fg_color="#f39c12", hover_color="#d68910")
+            self.pause_btn.configure(state="disabled")
+        else:
+            self.secret_shop_container.pack_forget()
+            self.general_target_container.pack(fill="both", expand=True)
+
+            if self.engine.is_running:
+                self.start_btn.configure(text="⏹ 매크로 정지", fg_color="#e74c3c", hover_color="#c0392b")
+                self.pause_btn.configure(state="normal" if not self.engine.is_paused else "disabled")
+            else:
+                self.start_btn.configure(text="▶ 매크로 시작", fg_color="#2ecc71", hover_color="#27ae60")
+                self.pause_btn.configure(state="disabled")
+
+    def on_secret_shop_stats_updated(self, stats: SecretShopStats):
+        """비상런 통계 실시간 UI 업데이트"""
+        def _update():
+            if not hasattr(self, "lbl_stat_refreshes"):
+                return
+            self.lbl_stat_refreshes.configure(text=f"{stats.refreshes:,} 회")
+            self.lbl_stat_skystones.configure(text=f"{stats.skystones_spent:,} 개")
+            self.lbl_stat_covenant.configure(text=f"{stats.covenant_count} 회 ({stats.covenant_count * 5}개)")
+            self.lbl_stat_mystic.configure(text=f"{stats.mystic_count} 회 ({stats.mystic_count * 50}개)")
+            self.lbl_stat_gold.configure(text=f"{stats.total_gold:,} G")
+            self.lbl_stat_elapsed.configure(text=stats.elapsed_str)
+        self.after(0, _update)
+
+    def reset_secret_shop_stats(self):
+        """비상런 통계 0으로 리셋"""
+        self.secret_shop_engine.stats.reset()
+        self.on_secret_shop_stats_updated(self.secret_shop_engine.stats)
+        self.append_log("📊 비상런 통계가 0으로 초기화되었습니다.")
+
+    def toggle_current_start(self):
+        """F9 키 또는 메인 시작 버튼 클릭 시 현재 활성 모드에 맞춰 시작/정지 토글"""
+        active_p = self.engine.get_active_profile()
+        if getattr(active_p, "profile_type", "general") == "secret_shop":
+            if not self.secret_shop_engine.is_running:
+                if not self.engine.hwnd:
+                    messagebox.showwarning("경고", "먼저 대상 윈도우(에픽세븐)를 선택하세요.")
+                    return
+
+                self.secret_shop_engine.hwnd = self.engine.hwnd
+                self.secret_shop_engine.click_mode = self.click_mode_var.get()
+                self.secret_shop_engine.buy_covenant = self.secret_buy_cov_var.get()
+                self.secret_shop_engine.buy_mystic = self.secret_buy_mys_var.get()
+                self.secret_shop_engine.buy_friendship = self.secret_buy_fb_var.get()
+
+                try:
+                    self.secret_shop_engine.max_refreshes = int(self.secret_max_refresh_entry.get().strip())
+                except ValueError:
+                    self.secret_shop_engine.max_refreshes = 0
+
+                success = self.secret_shop_engine.start(hwnd=self.engine.hwnd)
+                if success:
+                    self.start_btn.configure(text="⏹ 비상런 정지 (ESC)", fg_color="#e74c3c", hover_color="#c0392b")
+            else:
+                self.secret_shop_engine.stop()
+                self.start_btn.configure(text="▶ 비상런 시작 (F9)", fg_color="#f39c12", hover_color="#d68910")
+        else:
+            self.toggle_macro_start()
+
+    def stop_all(self):
+        """ESC 긴급 정지 키: 모든 실행 중인 매크로 및 비상런 정지"""
+        stopped_any = False
+        if hasattr(self, "secret_shop_engine") and self.secret_shop_engine.is_running:
+            self.secret_shop_engine.stop()
+            self.start_btn.configure(text="▶ 비상런 시작 (F9)", fg_color="#f39c12", hover_color="#d68910")
+            stopped_any = True
+
+        if hasattr(self, "engine") and self.engine.is_running:
+            self.engine.stop()
+            self.start_btn.configure(text="▶ 매크로 시작", fg_color="#2ecc71", hover_color="#27ae60")
+            self.pause_btn.configure(state="disabled")
+            stopped_any = True
+
+        if stopped_any:
+            self.append_log("🛑 [긴급 정지] 모든 매크로 동작이 정지되었습니다.")
+
+    def on_resize_window_client(self, target_w: int = 1600, target_h: int = 900):
+        """대상 윈도우의 내부 클라이언트 크기를 16:9 표준 해상도로 자동 조절"""
+        hwnd = self.engine.hwnd or (self.secret_shop_engine.hwnd if hasattr(self, "secret_shop_engine") else None)
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            messagebox.showwarning("경고", "먼저 크기를 조절할 대상 윈도우를 선택하세요.")
+            return
+
+        ok, msg = resize_window_client(hwnd, target_w, target_h)
+        if ok:
+            self.append_log(f"📐 [창 크기 맞춤] {msg}")
+            self.after(200, self.test_capture_window)
+        else:
+            self.append_log(f"⚠️ [창 크기 맞춤 실패] {msg}")
+            messagebox.showerror("오류", msg)
+
 
 
 if __name__ == "__main__":

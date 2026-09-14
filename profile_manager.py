@@ -35,7 +35,9 @@ class MacroProfile:
         auto_tap_interval: float = 0.5,
         auto_tap_x: int = -1,
         auto_tap_y: int = -1,
-        auto_tap_mode: str = "when_idle"
+        auto_tap_mode: str = "when_idle",
+        profile_type: str = "general",
+        secret_shop_config: Optional[Dict[str, Any]] = None
     ):
         self.id = profile_id
         self.name = name
@@ -50,6 +52,15 @@ class MacroProfile:
         self.auto_tap_x = auto_tap_x
         self.auto_tap_y = auto_tap_y
         self.auto_tap_mode = auto_tap_mode
+        self.profile_type = profile_type
+        self.secret_shop_config = secret_shop_config if secret_shop_config is not None else {
+            "buy_covenant": True,
+            "buy_mystic": True,
+            "buy_friendship": False,
+            "max_refreshes": 0,
+            "threshold": 0.75,
+            "click_mode": "hardware"
+        }
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -65,7 +76,9 @@ class MacroProfile:
             "auto_tap_interval": self.auto_tap_interval,
             "auto_tap_x": self.auto_tap_x,
             "auto_tap_y": self.auto_tap_y,
-            "auto_tap_mode": self.auto_tap_mode
+            "auto_tap_mode": self.auto_tap_mode,
+            "profile_type": self.profile_type,
+            "secret_shop_config": self.secret_shop_config
         }
 
     @classmethod
@@ -83,8 +96,11 @@ class MacroProfile:
             auto_tap_interval=data.get("auto_tap_interval", 0.5),
             auto_tap_x=data.get("auto_tap_x", -1),
             auto_tap_y=data.get("auto_tap_y", -1),
-            auto_tap_mode=data.get("auto_tap_mode", "when_idle")
+            auto_tap_mode=data.get("auto_tap_mode", "when_idle"),
+            profile_type=data.get("profile_type", "general"),
+            secret_shop_config=data.get("secret_shop_config", None)
         )
+
 
 
 class ProfileManager:
@@ -187,7 +203,12 @@ class ProfileManager:
         self.save_profile(cur)
         self.save_meta()
 
-    def create_profile(self, name: str) -> MacroProfile:
+    def create_profile(
+        self,
+        name: str,
+        profile_type: str = "general",
+        secret_shop_config: Optional[Dict[str, Any]] = None
+    ) -> MacroProfile:
         """새 독립 프로필 생성 후 즉시 활성화"""
         new_id = f"prof_{uuid.uuid4().hex[:8]}"
         new_profile = MacroProfile(
@@ -198,7 +219,9 @@ class ProfileManager:
             global_offset_y=0,
             interval=0.4,
             target_window_title="",
-            targets=[]
+            targets=[],
+            profile_type=profile_type,
+            secret_shop_config=secret_shop_config
         )
         self.profiles[new_id] = new_profile
         self.active_profile_id = new_id
@@ -245,13 +268,47 @@ class ProfileManager:
             global_offset_y=src.global_offset_y,
             interval=src.interval,
             target_window_title=src.target_window_title,
-            targets=new_targets
+            targets=new_targets,
+            auto_tap_enabled=src.auto_tap_enabled,
+            auto_tap_interval=src.auto_tap_interval,
+            auto_tap_x=src.auto_tap_x,
+            auto_tap_y=src.auto_tap_y,
+            auto_tap_mode=src.auto_tap_mode,
+            profile_type=src.profile_type,
+            secret_shop_config=dict(src.secret_shop_config) if src.secret_shop_config else None
         )
         self.profiles[new_id] = new_profile
         self.active_profile_id = new_id
         self.save_profile(new_profile)
         self.save_meta()
         return new_profile
+
+    def ensure_secret_shop_profile(self) -> MacroProfile:
+        """비상런 전용 프로필이 존재하지 않는 경우 기본 생성하여 등록"""
+        for p in self.profiles.values():
+            if p.profile_type == "secret_shop" or p.id == "secret_shop":
+                return p
+
+        sp = MacroProfile(
+            profile_id="secret_shop",
+            name="⚡ 비상런 (에픽세븐 비밀상점)",
+            click_mode="hardware",
+            target_window_title="에픽세븐",
+            profile_type="secret_shop",
+            secret_shop_config={
+                "buy_covenant": True,
+                "buy_mystic": True,
+                "buy_friendship": False,
+                "max_refreshes": 0,
+                "threshold": 0.75,
+                "click_mode": "hardware"
+            }
+        )
+        self.profiles["secret_shop"] = sp
+        self.save_profile(sp)
+        self.save_meta()
+        return sp
+
 
     def delete_profile(self, profile_id: str) -> bool:
         """프로필 삭제 (최소 1개 유지 보장)"""

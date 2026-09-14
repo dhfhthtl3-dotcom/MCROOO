@@ -31,6 +31,11 @@ def build():
         "--hidden-import", "macro_package",
         "--hidden-import", "zipfile",
         "--hidden-import", "mss",
+        "--hidden-import", "secret_shop_engine",
+        "--hidden-import", "clicker",
+        "--hidden-import", "window_capture",
+        "--hidden-import", "detector",
+        "--hidden-import", "macro_core",
         "main_gui.py"
     ]
     

@@ -284,3 +284,74 @@ def capture_window(hwnd: int, client_only: bool = True) -> Optional[np.ndarray]:
 
     _last_capture_error = "모든 캡처 전략에서 검은 화면(0px)이 반환되었거나 화면 접근이 제한되었습니다."
     return None
+
+
+def resize_window_client(hwnd: int, target_w: int = 1600, target_h: int = 900) -> Tuple[bool, str]:
+    """
+    대상 윈도우의 클라이언트(순수 게임 화면) 영역이 정확히 target_w x target_h(16:9)가 되도록 창 크기를 조절합니다.
+    테두리, 타이틀바, DPI 오프셋을 역산하여 잘림 현상을 완벽히 방지합니다.
+    """
+    if not win32gui.IsWindow(hwnd):
+        return False, "유효하지 않은 윈도우 핸들입니다."
+
+    try:
+        # 최소화/최대화 상태인 경우 일반 크기로 복원
+        if win32gui.IsIconic(hwnd) or win32gui.IsZoomed(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            import time
+            time.sleep(0.05)
+
+        # 현재 창 전체 영역 및 순수 클라이언트 영역 측정
+        w_left, w_top, w_right, w_bottom = win32gui.GetWindowRect(hwnd)
+        cl_rect = win32gui.GetClientRect(hwnd)
+
+        current_win_w = w_right - w_left
+        current_win_h = w_bottom - w_top
+        current_cl_w = cl_rect[2] - cl_rect[0]
+        current_cl_h = cl_rect[3] - cl_rect[1]
+
+        # 테두리 및 타이틀바 두께 계산
+        border_w = current_win_w - current_cl_w
+        border_h = current_win_h - current_cl_h
+
+        # 목표 창 전체 크기
+        new_win_w = target_w + border_w
+        new_win_h = target_h + border_h
+
+        # 창 위치 및 크기 적용
+        win32gui.SetWindowPos(
+            hwnd, 0,
+            w_left, w_top,
+            new_win_w, new_win_h,
+            win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+        )
+
+        import time
+        time.sleep(0.05)
+
+        # 2단계 미세 오차 보정 (일부 윈도우 스타일의 미세 오차 흡수)
+        updated_cl = win32gui.GetClientRect(hwnd)
+        actual_cl_w = updated_cl[2] - updated_cl[0]
+        actual_cl_h = updated_cl[3] - updated_cl[1]
+
+        if actual_cl_w != target_w or actual_cl_h != target_h:
+            delta_w = target_w - actual_cl_w
+            delta_h = target_h - actual_cl_h
+            new_win_w += delta_w
+            new_win_h += delta_h
+            win32gui.SetWindowPos(
+                hwnd, 0,
+                w_left, w_top,
+                new_win_w, new_win_h,
+                win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+            )
+            time.sleep(0.03)
+
+        final_cl = win32gui.GetClientRect(hwnd)
+        f_w = final_cl[2] - final_cl[0]
+        f_h = final_cl[3] - final_cl[1]
+
+        return True, f"창 내부 해상도가 {f_w}x{f_h} (16:9)로 맞춤 설정되었습니다."
+    except Exception as e:
+        return False, f"창 크기 조절 실패: {e}"
+
