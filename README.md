@@ -1,14 +1,14 @@
-# 🎮 GameMacro (게임 매크로 v2.5.0)
+# 🎮 GameMacro (게임 매크로 v2.5.2)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/Release-v2.5.0-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
-[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.0/GameMacro-v2.5.0-windows-x64.zip)
+[![Release](https://img.shields.io/badge/Release-v2.5.2-brightgreen.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/latest)
+[![Download](https://img.shields.io/badge/Download-GameMacro.zip-blue.svg)](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.2/GameMacro-v2.5.2-windows-x64.zip)
 
 > **컴퓨터 비전(OpenCV)과 Windows Win32 API를 결합한 차세대 멀티 타겟 감지, 에픽세븐 비상런 전자동화, 16:9 창 맞춤 및 하이브리드 제어 도구**
 
-### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.5.0) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.0/GameMacro-v2.5.0-windows-x64.zip)
+### 📦 [👉 최신 스탠드얼론 실행 파일 (v2.5.2) 다운로드](https://github.com/dhfhthtl3-dotcom/MCROOO/releases/download/v2.5.2/GameMacro-v2.5.2-windows-x64.zip)
 *파이썬 설치 없이 다운로드받아 압축만 풀면 바로 실행 가능합니다.*
 
 ---
@@ -89,7 +89,7 @@
 파이썬 설치가 필요 없는 **무설치 단일 실행 파일**을 다운로드하여 바로 사용하실 수 있습니다:
 
 1. [GitHub Releases](../../releases) 페이지로 이동합니다.
-2. 최신 버전의 **`GameMacro-v2.5.0-windows-x64.zip`** 파일을 다운로드합니다.
+2. 최신 버전의 **`GameMacro-v2.5.2-windows-x64.zip`** 파일을 다운로드합니다.
 3. 압축을 풀고 **`GameMacro.exe`**를 실행합니다.  
    *(관리자 권한 UAC 확인 창이 뜨면 **'예'**를 누릅니다)*
 

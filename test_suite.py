@@ -552,12 +552,13 @@ class TestPinpointAndAutoTapSuite(unittest.TestCase):
             engine.delay_post_refresh = 0.01
             engine.delay_post_drag = 0.01
             engine.delay_click = 0.01
+            engine.delay_post_confirm = 0.01
             engine.max_refreshes = 1
             engine.hwnd = 99999
 
             engine.start(hwnd=99999)
             t_start = time.time()
-            while time.time() - t_start < 2.0 and engine.stats.refreshes < 1:
+            while time.time() - t_start < 4.0 and engine.stats.refreshes < 1:
                 time.sleep(0.05)
             engine.stop()
 
@@ -599,6 +600,58 @@ class TestPinpointAndAutoTapSuite(unittest.TestCase):
             self.assertEqual(h, 450)
         finally:
             root.destroy()
+
+
+    def test_secret_shop_duplicate_and_false_click_prevention(self):
+        """비상런 중복 구매 차단, 모달 아이콘 ROI 제외, 고정 구매버튼 좌표 검증"""
+        from secret_shop_engine import SecretShopEngine
+        import secret_shop_engine
+
+        engine = SecretShopEngine()
+        cov_img = engine.templates["covenant"]["image"]
+        ch, cw = cov_img.shape[:2]
+
+        # 1. ROI 가드 검증: 화면 중앙(0.60W) 또는 우측(0.80W)에 위치한 모달 아이콘은 감지 제외
+        modal_screen = np.zeros((900, 1600, 3), dtype=np.uint8)
+        # X=960 (0.60*W) 위치에 성약 아이콘 배치 (모달 팝업 시뮬레이션)
+        modal_screen[300:300+ch, 960:960+cw] = cov_img
+        detected_modal = engine.find_items_in_frame(modal_screen, ["covenant"])
+        self.assertEqual(len(detected_modal), 0, "중앙/우측 모달 팝업 영역의 아이콘은 ROI 가드로 제외되어야 합니다.")
+
+        # 2. 고정 구매 버튼 좌표 검증
+        self.assertEqual(engine.BUY_BTN_X_RATIO, 0.8850)
+
+        # 3. 사이클 내 1회 구매 후 중복 구매 방지(bought_in_cycle) 검증
+        valid_screen = np.zeros((900, 1600, 3), dtype=np.uint8)
+        valid_screen[250:250+ch, 200:200+cw] = cov_img
+
+        clicks = []
+        orig_capture = secret_shop_engine.capture_window
+        orig_click = secret_shop_engine.dispatch_click
+
+        try:
+            secret_shop_engine.capture_window = lambda hwnd: valid_screen
+            secret_shop_engine.dispatch_click = lambda hwnd, x, y, mode="hardware": clicks.append((x, y)) or True
+            engine.delay_click = 0.001
+            engine.delay_post_confirm = 0.001
+            engine.hwnd = 99999
+
+            bought_cycle = set()
+            # 1차 스캔: 성약 구매 진행 -> bought_cycle에 추가됨
+            count1 = engine._scan_and_buy_page("1차스캔", bought_in_cycle=bought_cycle)
+            self.assertEqual(count1, 1)
+            self.assertIn("covenant", bought_cycle)
+            # 첫 번째 클릭(구매 버튼)의 X좌표는 1600 * 0.8850 = 1416 이어야 함
+            self.assertEqual(clicks[0][0], int(1600 * 0.8850))
+
+            # 2차 스캔 (화면에 여전히 성약이 남아있더라도): 이미 구매했으므로 스킵되어야 함
+            clicks_before = len(clicks)
+            count2 = engine._scan_and_buy_page("2차스캔", bought_in_cycle=bought_cycle)
+            self.assertEqual(count2, 0, "이미 구매된 아이템은 재구매되지 않아야 합니다.")
+            self.assertEqual(len(clicks), clicks_before, "추가 클릭이 발생하지 않아야 합니다.")
+        finally:
+            secret_shop_engine.capture_window = orig_capture
+            secret_shop_engine.dispatch_click = orig_click
 
 
 if __name__ == "__main__":

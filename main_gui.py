@@ -627,7 +627,7 @@ class MacroApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("🎯 다중 버튼 감지 및 에픽세븐 비상런 자동화 매크로 v2.5.0")
+        self.title("🎯 다중 버튼 감지 및 에픽세븐 비상런 자동화 매크로 v2.5.2")
         self.geometry("1260x830")
         self.minsize(1120, 720)
 
@@ -680,7 +680,7 @@ class MacroApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="🎯 Multi-Button Frame Detector & Epic Seven Secret Shop v2.5.0",
+            text="🎯 Multi-Button Frame Detector & Epic Seven Secret Shop v2.5.2",
             font=ctk.CTkFont(size=17, weight="bold")
         ).pack(side="left", padx=20, pady=10)
 

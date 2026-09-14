@@ -13,7 +13,7 @@ import time
 import math
 import random
 import threading
-from typing import Optional, Callable, Dict, Any, List, Tuple
+from typing import Optional, Callable, Dict, Any, List, Tuple, Set
 import cv2
 import numpy as np
 import win32gui
@@ -117,11 +117,11 @@ class SecretShopEngine:
     REFRESH_CONFIRM_RATIO = (0.5828, 0.6411)
     # 구매 확인 팝업 (골드 소모 확인)
     BUY_CONFIRM_RATIO = (0.5677, 0.7037)
-    # 아이템 감지 위치 대비 구매(골드) 버튼 오프셋
-    BUY_BTN_X_OFFSET_RATIO = 0.4718
-    # 상점 스크롤(스와이프) 시작 및 종료 좌표 비율
-    DRAG_START_RATIO = (0.6250, 0.7481)
-    DRAG_END_RATIO = (0.6250, 0.3629)
+    # 상점 행 우측 구매(골드) 버튼 X좌표 비율 (PC 클라이언트 기준)
+    BUY_BTN_X_RATIO = 0.8850
+    # 상점 스크롤(스와이프) 시작 및 종료 좌표 비율 (Solunium 검증 안전 구역)
+    DRAG_START_RATIO = (0.5800, 0.6500)
+    DRAG_END_RATIO = (0.5800, 0.3730)
 
     def __init__(self, templates_dir: Optional[str] = None):
         self.templates_dir = templates_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "secret_shop")
@@ -134,12 +134,13 @@ class SecretShopEngine:
         self.buy_friendship: bool = False
         self.max_refreshes: int = 0  # 0: 무제한
         self.click_mode: str = "hardware"
-        self.match_threshold: float = 0.75
+        self.match_threshold: float = 0.78  # 3채널 컬러 정밀 매칭 임계치
 
         # 지연 시간 (안정적인 게임 반응 보장)
         self.delay_post_refresh: float = 1.35  # 새로고침 후 아이템 떨어지는 애니메이션 대기
         self.delay_post_drag: float = 0.65     # 스크롤 후 애니메이션 정지 대기
-        self.delay_click: float = 0.30         # 팝업 반응 대기
+        self.delay_click: float = 0.40         # 팝업 반응 대기 (안정적 팝업 오픈/클로즈 보장)
+        self.delay_post_confirm: float = 0.50  # 구매 확인 팝업 종료 및 잔상 해소 대기
 
         # 통계 및 상태 관리
         self.stats = SecretShopStats()
@@ -171,11 +172,10 @@ class SecretShopEngine:
         if not os.path.exists(self.templates_dir):
             os.makedirs(self.templates_dir, exist_ok=True)
 
+        # 상점 목록 슬롯 기준 정밀 에셋 (대형 팝업 오인식 방지를 위해 표준 행 에셋만 사용)
         items_def = [
             ("covenant", "cov.png", 906, 539, "성약의 책갈피"),
-            ("covenant_adb", "cov_adb.png", 1920, 1080, "성약의 책갈피(고해상도)"),
             ("mystic", "mys.png", 906, 539, "신비의 메달"),
-            ("mystic_adb", "mys_adb.png", 1920, 1080, "신비의 메달(고해상도)"),
             ("friendship", "fb.png", 906, 539, "우정의 책갈피"),
         ]
 
@@ -183,10 +183,10 @@ class SecretShopEngine:
             p = os.path.join(self.templates_dir, filename)
             img = load_image_unicode(p)
             if img is not None:
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+                if len(img.shape) == 2:
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
                 self.templates[item_key] = {
                     "image": img,
-                    "gray": gray,
                     "base_w": base_w,
                     "base_h": base_h,
                     "desc": desc
@@ -200,70 +200,62 @@ class SecretShopEngine:
         item_types: List[str]
     ) -> List[Dict[str, Any]]:
         """
-        현재 프레임에서 활성화된 아이템(성약, 신비 등)의 위치를 다중 스케일 매칭으로 탐색합니다.
+        현재 프레임에서 활성화된 아이템(성약, 신비, 우정 등)의 위치를 다중 스케일 컬러 매칭으로 탐색합니다.
+        팝업 대형 아이콘 및 오인식을 방지하기 위해 ROI 및 3채널 BGR 교차 상관도를 엄격히 검사합니다.
         반환: [{'type': 'covenant', 'x': cx, 'y': cy, 'score': score, 'w': w, 'h': h}, ...]
         """
         if frame is None or len(frame.shape) < 2:
             return []
 
         frame_h, frame_w = frame.shape[:2]
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+        if len(frame.shape) == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
         detected = []
 
         for itype in item_types:
-            # 기본 에셋 및 고해상도(adb) 에셋 둘 다 탐색
-            keys_to_try = [itype]
-            adb_key = f"{itype}_adb"
-            if adb_key in self.templates:
-                keys_to_try.append(adb_key)
+            if itype not in self.templates:
+                continue
+
+            tdata = self.templates[itype]
+            t_img = tdata["image"]
+            base_w = tdata["base_w"]
+
+            # 기준 해상도(906) 대비 현재 프레임 크기 배율 계산
+            scale = frame_w / float(base_w)
+            scale_candidates = list(dict.fromkeys([scale * 0.95, scale, scale * 1.05, 1.0]))
 
             best_match = None
 
-            for tkey in keys_to_try:
-                if tkey not in self.templates:
+            for sc in scale_candidates:
+                target_tw = int(round(t_img.shape[1] * sc))
+                target_th = int(round(t_img.shape[0] * sc))
+
+                if target_tw <= 5 or target_th <= 5 or target_tw >= frame_w or target_th >= frame_h:
                     continue
 
-                tdata = self.templates[tkey]
-                t_gray = tdata["gray"]
-                base_w = tdata["base_w"]
-                base_h = tdata["base_h"]
+                scaled_tmpl = cv2.resize(t_img, (target_tw, target_th), interpolation=cv2.INTER_AREA if sc < 1.0 else cv2.INTER_LINEAR)
 
-                # 기준 해상도 대비 현재 프레임 크기 배율 계산
-                scale = frame_w / float(base_w)
-                # 배율 후보군 (스케일 보정 + 원본 1.0x 호환)
-                scale_candidates = list(dict.fromkeys([scale * 0.92, scale, scale * 1.08, 1.0]))
+                # 3채널 BGR 컬러 매칭 (회색조 변환에 의한 잡템/일반장비 오인식 완전 차단)
+                res = cv2.matchTemplate(frame, scaled_tmpl, cv2.TM_CCOEFF_NORMED)
+                min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
-                for sc in scale_candidates:
+                if max_val >= self.match_threshold:
+                    cx = int(max_loc[0] + target_tw / 2)
+                    cy = int(max_loc[1] + target_th / 2)
 
-                    target_tw = int(round(t_gray.shape[1] * sc))
-                    target_th = int(round(t_gray.shape[0] * sc))
-
-                    if target_tw <= 5 or target_th <= 5 or target_tw >= frame_w or target_th >= frame_h:
-                        continue
-
-                    scaled_tmpl = cv2.resize(t_gray, (target_tw, target_th), interpolation=cv2.INTER_AREA if sc < 1.0 else cv2.INTER_LINEAR)
-
-                    res = cv2.matchTemplate(frame_gray, scaled_tmpl, cv2.TM_CCOEFF_NORMED)
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-
-                    if max_val >= self.match_threshold:
-                        # 중심 좌표 계산
-                        cx = int(max_loc[0] + target_tw / 2)
-                        cy = int(max_loc[1] + target_th / 2)
-
-                        # 왼쪽 상점 아이템 영역인지 확인 (보통 상점 아이템 아이콘은 왼쪽 X < 0.65W)
-                        if cx < frame_w * 0.65:
-                            if best_match is None or max_val > best_match["score"]:
-                                best_match = {
-                                    "type": itype,
-                                    "name": tdata["desc"],
-                                    "x": cx,
-                                    "y": cy,
-                                    "score": float(max_val),
-                                    "w": target_tw,
-                                    "h": target_th
-                                }
+                    # [ROI 가드] 상점 아이템 행의 아이콘 영역만 허용 (0.10*W ~ 0.55*W)
+                    if 0.10 * frame_w <= cx <= 0.55 * frame_w and 0.05 * frame_h <= cy <= 0.95 * frame_h:
+                        if best_match is None or max_val > best_match["score"]:
+                            best_match = {
+                                "type": itype,
+                                "name": tdata["desc"],
+                                "x": cx,
+                                "y": cy,
+                                "score": float(max_val),
+                                "w": target_tw,
+                                "h": target_th
+                            }
 
             if best_match is not None:
                 detected.append(best_match)
@@ -343,45 +335,65 @@ class SecretShopEngine:
                 self.log("대상 창이 닫혔거나 유효하지 않아 자동 정지합니다.")
                 break
 
-            # 3. 1페이지 (상단 슬롯) 검사 및 구매
-            bought_in_cycle = self._scan_and_buy_page(page_desc="1페이지(상단)")
+            # 3. 이번 갱신 사이클에서 이미 구매한 아이템 추적 집합 (1회 등장 시 중복 구매 원천 방지)
+            bought_in_cycle: Set[str] = set()
+
+            # 4. 1페이지 (상단 슬롯) 검사 및 구매
+            self._scan_and_buy_page(page_desc="1페이지(상단)", bought_in_cycle=bought_in_cycle)
             if self._stop_event.is_set():
                 break
 
-            # 4. 하단으로 상점 목록 스크롤(드래그)
+            # 5. 아직 구매하지 않은 목표 아이템이 남아있는 경우에만 2페이지 스크롤 진행
+            active_targets = []
+            if self.buy_covenant:
+                active_targets.append("covenant")
+            if self.buy_mystic:
+                active_targets.append("mystic")
+            if self.buy_friendship:
+                active_targets.append("friendship")
+
+            remaining_targets = [t for t in active_targets if t not in bought_in_cycle]
+
+            if remaining_targets:
+                # 6. 하단으로 상점 목록 스크롤(드래그)
+                cl_rect = win32gui.GetClientRect(self.hwnd)
+                win_w = max(cl_rect[2], 100)
+                win_h = max(cl_rect[3], 100)
+
+                drag_x1 = int(win_w * self.DRAG_START_RATIO[0])
+                drag_y1 = int(win_h * self.DRAG_START_RATIO[1])
+                drag_x2 = int(win_w * self.DRAG_END_RATIO[0])
+                drag_y2 = int(win_h * self.DRAG_END_RATIO[1])
+
+                dispatch_drag(
+                    self.hwnd,
+                    drag_x1, drag_y1,
+                    drag_x2, drag_y2,
+                    mode=self.click_mode,
+                    duration=0.35,
+                    steps=14
+                )
+
+                # 스크롤 애니메이션 대기
+                if not self._sleep_check(self.delay_post_drag):
+                    break
+
+                # 7. 2페이지 (하단 슬롯) 검사 및 구매 (아직 안 산 아이템만 탐색!)
+                self._scan_and_buy_page(page_desc="2페이지(하단)", bought_in_cycle=bought_in_cycle)
+                if self._stop_event.is_set():
+                    break
+            else:
+                self.log("✨ 1페이지에서 모든 목표 아이템 구매 완료 ➔ 2페이지 스킵")
+
+            # 8. 새로고침 수행 (하늘석 3개 소모)
             cl_rect = win32gui.GetClientRect(self.hwnd)
             win_w = max(cl_rect[2], 100)
             win_h = max(cl_rect[3], 100)
-
-            drag_x1 = int(win_w * self.DRAG_START_RATIO[0])
-            drag_y1 = int(win_h * self.DRAG_START_RATIO[1])
-            drag_x2 = int(win_w * self.DRAG_END_RATIO[0])
-            drag_y2 = int(win_h * self.DRAG_END_RATIO[1])
-
-            dispatch_drag(
-                self.hwnd,
-                drag_x1, drag_y1,
-                drag_x2, drag_y2,
-                mode=self.click_mode,
-                duration=0.35,
-                steps=14
-            )
-
-            # 스크롤 애니메이션 대기
-            if not self._sleep_check(self.delay_post_drag):
-                break
-
-            # 5. 2페이지 (하단 슬롯) 검사 및 구매
-            self._scan_and_buy_page(page_desc="2페이지(하단)")
-            if self._stop_event.is_set():
-                break
-
-            # 6. 새로고침 수행 (하늘석 3개 소모)
             refreshed = self._execute_refresh(win_w, win_h)
             if not refreshed or self._stop_event.is_set():
                 break
 
-            # 7. 통계 갱신 및 UI 전달
+            # 9. 통계 갱신 및 UI 전달
             if self.on_stats_update:
                 try:
                     self.on_stats_update(self.stats)
@@ -394,21 +406,28 @@ class SecretShopEngine:
             self.on_status_change("정지됨")
         self.log(f"비상런 종료 - 총 갱신: {self.stats.refreshes}회 | 성약: {self.stats.covenant_count}회 | 신비: {self.stats.mystic_count}회 | 소모 하늘석: {self.stats.skystones_spent}개")
 
-    def _scan_and_buy_page(self, page_desc: str) -> int:
+    def _scan_and_buy_page(self, page_desc: str, bought_in_cycle: Optional[Set[str]] = None) -> int:
         """한 화면(페이지)의 아이템들을 스캔하고 구매합니다."""
+        if bought_in_cycle is None:
+            bought_in_cycle = set()
+
         frame = capture_window(self.hwnd)
         if frame is None:
             return 0
 
         frame_h, frame_w = frame.shape[:2]
 
+        # 이미 이번 사이클에서 구매한 아이템은 검색 대상에서 원천 제외
         items_to_search = []
-        if self.buy_covenant:
+        if self.buy_covenant and "covenant" not in bought_in_cycle:
             items_to_search.append("covenant")
-        if self.buy_mystic:
+        if self.buy_mystic and "mystic" not in bought_in_cycle:
             items_to_search.append("mystic")
-        if self.buy_friendship:
+        if self.buy_friendship and "friendship" not in bought_in_cycle:
             items_to_search.append("friendship")
+
+        if not items_to_search:
+            return 0
 
         detected_items = self.find_items_in_frame(frame, items_to_search)
 
@@ -428,8 +447,11 @@ class SecretShopEngine:
             iname = item["name"]
             ix, iy = item["x"], item["y"]
 
-            # 구매 버튼 좌표 계산 (아이템 X + W*0.4718, 아이템 Y)
-            buy_btn_x = int(ix + frame_w * self.BUY_BTN_X_OFFSET_RATIO)
+            if itype in bought_in_cycle:
+                continue
+
+            # 구매(골드) 버튼 좌표: PC 클라이언트 행 우측 끝 (0.885*W), Y는 해당 행 중앙
+            buy_btn_x = int(frame_w * self.BUY_BTN_X_RATIO)
             buy_btn_y = iy
 
             self.log(f"[{page_desc}] ✨ {iname} 발견! (정확도 {item['score']*100:.1f}%) ➔ 구매 진행")
@@ -443,9 +465,13 @@ class SecretShopEngine:
             confirm_x = int(frame_w * self.BUY_CONFIRM_RATIO[0])
             confirm_y = int(frame_h * self.BUY_CONFIRM_RATIO[1])
             dispatch_click(self.hwnd, confirm_x, confirm_y, mode=self.click_mode)
-            if not self._sleep_check(self.delay_click):
+
+            # 3. 팝업이 닫히고 구매가 완료될 때까지 안전 대기 (팝업 잔상 오인식 방지)
+            if not self._sleep_check(self.delay_post_confirm):
                 break
 
+            # 이번 사이클 구매 완료 등록 (중복 구매 원천 방지)
+            bought_in_cycle.add(itype)
 
             # 통계 업데이트
             if itype == "covenant":
