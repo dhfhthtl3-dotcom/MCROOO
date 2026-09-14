@@ -575,6 +575,31 @@ class TestPinpointAndAutoTapSuite(unittest.TestCase):
             win32gui.IsWindow = orig_is_win
             win32gui.GetClientRect = orig_get_client
 
+    def test_resize_window_client_real(self):
+        """실제 Tkinter 윈도우를 생성하여 resize_window_client의 16:9 크기 조절 및 예외 발생 여부 검증"""
+        import tkinter as tk
+        from window_capture import resize_window_client
+
+        root = tk.Tk()
+        root.title("UnitTestResizeWindow")
+        root.geometry("400x300+100+100")
+        root.update()
+
+        hwnd = root.winfo_id()
+        import win32gui
+        toplevel_hwnd = win32gui.GetParent(hwnd) or hwnd
+
+        try:
+            success, msg = resize_window_client(toplevel_hwnd, 800, 450)
+            self.assertTrue(success, f"창 크기 조절이 성공해야 합니다: {msg}")
+            cl_rect = win32gui.GetClientRect(toplevel_hwnd)
+            w = cl_rect[2] - cl_rect[0]
+            h = cl_rect[3] - cl_rect[1]
+            self.assertEqual(w, 800)
+            self.assertEqual(h, 450)
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

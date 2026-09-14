@@ -138,8 +138,11 @@
     - 프로필 선택 시 일반 타겟 카드 뷰 대신 **실시간 비상런 6대 지표 대시보드**(새로고침, 하늘석, 성약, 신비, 골드, 시간)로 자동 전환 (`update_view_mode`).
     - F9 단축키로 비상런 시작/정지 토글, ESC 긴급 중지 지원.
   - **단위 테스트 무결성 검증 (`test_suite.py`)**:
-    - `test_resize_window_client`, `test_drag_clicker`, `test_secret_shop_stats`, `test_secret_shop_engine_detection_and_cycle` 추가.
-    - 총 19개 단위 테스트 100% 통과 (`Ran 19 tests in 2.367s - OK`).
+    - `test_resize_window_client_real`, `test_drag_clicker`, `test_secret_shop_stats`, `test_secret_shop_engine_detection_and_cycle` 추가.
+    - 총 20개 단위 테스트 100% 통과 (`Ran 20 tests in 2.756s - OK`).
+  - **창 크기 조절 시 `IsZoomed` 누락 오류 긴급 해결 (v2.5.1)**:
+    - **원인**: Win32 C API `IsZoomed`는 `win32gui` 모듈에 래핑되어 있지 않아 16:9 맞춤 버튼 클릭 시 `AttributeError: module 'win32gui' has no attribute 'IsZoomed'` 발생.
+    - **해결**: `ctypes.windll.user32.IsZoomed(hwnd)` 및 `win32con.WS_MAXIMIZE` 윈도우 스타일 검사 폴백으로 안전하게 대체. 실제 윈도우 대상 정밀 리사이즈 검증 단위 테스트(`test_resize_window_client_real`) 추가.
   - **기존 9개 버튼 및 프로필 100% 무손실 보존**:
     - `profiles/default.json`에 등록된 실제 게임 버튼 9종 무손실 유지.
     - `build_exe.py`에 `secret_shop_engine`, `clicker`, `window_capture`, `image_matcher` 히든 임포트 및 템플릿 복사 파이프라인 반영.

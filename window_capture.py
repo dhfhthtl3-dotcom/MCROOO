@@ -296,7 +296,19 @@ def resize_window_client(hwnd: int, target_w: int = 1600, target_h: int = 900) -
 
     try:
         # 최소화/최대화 상태인 경우 일반 크기로 복원
-        if win32gui.IsIconic(hwnd) or win32gui.IsZoomed(hwnd):
+        is_iconic = win32gui.IsIconic(hwnd) if hasattr(win32gui, "IsIconic") else False
+        is_zoomed = False
+        try:
+            import ctypes
+            is_zoomed = bool(ctypes.windll.user32.IsZoomed(hwnd))
+        except Exception:
+            try:
+                style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+                is_zoomed = bool(style & win32con.WS_MAXIMIZE)
+            except Exception:
+                pass
+
+        if is_iconic or is_zoomed:
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
             import time
             time.sleep(0.05)
