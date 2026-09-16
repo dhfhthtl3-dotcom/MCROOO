@@ -623,13 +623,77 @@ class ImportVerifyDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+def setup_smooth_scrolling(scrollable_frame: ctk.CTkScrollableFrame, speed_multiplier: int = 3):
+    """
+    CTkScrollableFrame의 자식 위젯(버튼, 라벨, 슬라이더 등) 마우스 휠 차단 문제를 해결하고
+    시원하고 빠른 스크롤 반응성을 제공하는 전역 스크롤 라우터
+    """
+    canvas = scrollable_frame._parent_canvas
+
+    def custom_check_if_valid_scroll(widget):
+        if widget == canvas:
+            return True
+        elif isinstance(widget, (ctk.CTkScrollbar, ctk.CTkTextbox)):
+            return False
+        elif isinstance(widget, ctk.CTkScrollableFrame):
+            return widget._parent_canvas == canvas
+        elif hasattr(widget, "master") and widget.master is not None:
+            return custom_check_if_valid_scroll(widget.master)
+        return False
+
+    scrollable_frame._check_if_valid_scroll = custom_check_if_valid_scroll
+
+    def custom_mouse_wheel(event):
+        if scrollable_frame._check_if_valid_scroll(event.widget):
+            if sys.platform.startswith("win"):
+                delta = -int(event.delta / 6 * speed_multiplier)
+                if delta == 0 and event.delta != 0:
+                    delta = -speed_multiplier if event.delta > 0 else speed_multiplier
+                if getattr(scrollable_frame, "_shift_pressed", False):
+                    if canvas.xview() != (0.0, 1.0):
+                        canvas.xview("scroll", delta, "units")
+                else:
+                    if canvas.yview() != (0.0, 1.0):
+                        canvas.yview("scroll", delta, "units")
+            elif sys.platform == "darwin":
+                delta = -event.delta * speed_multiplier
+                if getattr(scrollable_frame, "_shift_pressed", False):
+                    if canvas.xview() != (0.0, 1.0):
+                        canvas.xview("scroll", delta, "units")
+                else:
+                    if canvas.yview() != (0.0, 1.0):
+                        canvas.yview("scroll", delta, "units")
+            else:
+                step = -speed_multiplier if event.num == 4 else speed_multiplier
+                if getattr(scrollable_frame, "_shift_pressed", False):
+                    if canvas.xview() != (0.0, 1.0):
+                        canvas.xview_scroll(step, "units")
+                else:
+                    if canvas.yview() != (0.0, 1.0):
+                        canvas.yview_scroll(step, "units")
+
+    scrollable_frame._mouse_wheel_all = custom_mouse_wheel
+
+    def bind_children(w):
+        try:
+            w.bind("<MouseWheel>", custom_mouse_wheel, add="+")
+        except Exception:
+            pass
+        for ch in w.winfo_children():
+            bind_children(ch)
+
+    scrollable_frame.bind_children_mousewheel = bind_children
+    bind_children(scrollable_frame)
+
+
 class MacroApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("🎯 다중 버튼 감지 및 에픽세븐 비상런 자동화 매크로 v2.5.2")
-        self.geometry("1260x830")
-        self.minsize(1120, 720)
+        self.title("🎯 다중 버튼 감지 및 에픽세븐 비상런 자동화 매크로 v2.5.3")
+        # 반응형 윈도우 크기: 작은 모니터나 고DPI(125%/150%) 환경에서도 쾌적하게 수용
+        self.geometry("1200x750")
+        self.minsize(980, 560)
 
         self.engine = MacroEngine()
         # 비상런 기본 프로필 등록 보장
@@ -649,12 +713,18 @@ class MacroApp(ctk.CTk):
         self._profile_map: Dict[str, str] = {}
         self.is_picking_autotap_point: bool = False
 
-        # 미리보기 렌더링 최적화 상태값 (단일 버퍼 및 디바운서)
+        # 미리보기 렌더링 최적화 상태값 (단일 버퍼 및 디바운서, 초경량 모드)
+        self.preview_enabled_var = ctk.BooleanVar(value=True)
         self._pending_frame: Optional[np.ndarray] = None
         self._pending_detections: Optional[list] = None
         self._preview_render_scheduled: bool = False
         self._preview_canvas_img_id: Optional[int] = None
         self._canvas_resize_timer: Optional[str] = None
+        self._last_preview_render_time: float = 0.0
+
+        # 고성능 로그 배치 큐 상태값
+        self._log_buffer: list = []
+        self._log_flush_scheduled: bool = False
 
         # 엔진 콜백 연결
         self.engine.on_log = self.append_log
@@ -680,7 +750,7 @@ class MacroApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="🎯 Multi-Button Frame Detector & Epic Seven Secret Shop v2.5.2",
+            text="🎯 Multi-Button Frame Detector & Epic Seven Secret Shop v2.5.3",
             font=ctk.CTkFont(size=17, weight="bold")
         ).pack(side="left", padx=20, pady=10)
 
@@ -812,19 +882,50 @@ class MacroApp(ctk.CTk):
         col1.pack(side="left", fill="y", padx=(0, 10))
         col1.pack_propagate(False)
 
+        # 1. 하단 고정 제어 독 (시작/정지 및 일시정지 버튼을 항상 하단에 고정 표시)
+        ctrl_box = ctk.CTkFrame(col1, fg_color="#181824", corner_radius=8)
+        ctrl_box.pack(side="bottom", fill="x", padx=8, pady=(4, 8))
+
+        self.start_btn = ctk.CTkButton(
+            ctrl_box,
+            text="▶ 매크로 시작",
+            height=42,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            command=self.toggle_current_start
+        )
+        self.start_btn.pack(fill="x", padx=8, pady=(8, 4))
+
+        self.pause_btn = ctk.CTkButton(
+            ctrl_box,
+            text="⏸ 일시정지",
+            height=28,
+            state="disabled",
+            fg_color="#f39c12",
+            hover_color="#d68910",
+            command=self.toggle_pause
+        )
+        self.pause_btn.pack(fill="x", padx=8, pady=(0, 8))
+
+        # 2. 상단 스크롤 영역 (설정 패널 전체를 마우스 휠로 부드럽게 스크롤)
+        self.col1_scroll = ctk.CTkScrollableFrame(col1, fg_color="transparent")
+        self.col1_scroll.pack(side="top", fill="both", expand=True, padx=2, pady=(4, 2))
+        setup_smooth_scrolling(self.col1_scroll, speed_multiplier=3)
+
         # 창 선택 섹션
-        ctk.CTkLabel(col1, text="1. 대상 윈도우 선택", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(12, 4))
+        ctk.CTkLabel(self.col1_scroll, text="1. 대상 윈도우 선택", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(8, 4))
         
-        self.win_combobox = ctk.CTkComboBox(col1, values=["창 목록 검색 중..."], command=self.on_window_selected, height=32)
+        self.win_combobox = ctk.CTkComboBox(self.col1_scroll, values=["창 목록 검색 중..."], command=self.on_window_selected, height=32)
         self.win_combobox.pack(fill="x", padx=12, pady=4)
 
-        win_btn_row = ctk.CTkFrame(col1, fg_color="transparent")
+        win_btn_row = ctk.CTkFrame(self.col1_scroll, fg_color="transparent")
         win_btn_row.pack(fill="x", padx=12, pady=4)
         ctk.CTkButton(win_btn_row, text="🔄 목록 갱신", width=120, command=self.refresh_window_list).pack(side="left", padx=(0, 6))
         ctk.CTkButton(win_btn_row, text="📷 화면 캡처", width=120, fg_color="#2980b9", hover_color="#1f618d", command=self.test_capture_window).pack(side="left")
 
         # 창 크기 16:9 해상도 자동 맞춤 버튼 (창 잘림 방지)
-        resize_btn_row = ctk.CTkFrame(col1, fg_color="transparent")
+        resize_btn_row = ctk.CTkFrame(self.col1_scroll, fg_color="transparent")
         resize_btn_row.pack(fill="x", padx=12, pady=(2, 6))
         ctk.CTkButton(
             resize_btn_row,
@@ -846,12 +947,11 @@ class MacroApp(ctk.CTk):
         ).pack(side="left")
 
         # 클릭 방식 선택 (핵심!)
-        ctk.CTkLabel(col1, text="2. 클릭 모드 (엔진)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(15, 4))
+        ctk.CTkLabel(self.col1_scroll, text="2. 클릭 모드 (엔진)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(12, 4))
 
-        
         self.click_mode_var = ctk.StringVar(value="hardware")
         
-        mode_box = ctk.CTkFrame(col1, fg_color="#222230")
+        mode_box = ctk.CTkFrame(self.col1_scroll, fg_color="#222230")
         mode_box.pack(fill="x", padx=12, pady=4)
 
         ctk.CTkRadioButton(
@@ -882,8 +982,8 @@ class MacroApp(ctk.CTk):
         ctk.CTkLabel(mode_box, text="   커서 미이동 Win32 메시지 전송 (게임에 따라 무시될 수 있음)", font=ctk.CTkFont(size=11), text_color="#aaaaaa").pack(anchor="w", padx=10, pady=(0, 8))
 
         # 클릭 테스트 버튼
-        test_click_box = ctk.CTkFrame(col1, fg_color="transparent")
-        test_click_box.pack(fill="x", padx=12, pady=(6, 8))
+        test_click_box = ctk.CTkFrame(self.col1_scroll, fg_color="transparent")
+        test_click_box.pack(fill="x", padx=12, pady=(4, 6))
         ctk.CTkButton(
             test_click_box,
             text="🎯 대상 창 클릭 테스트 (화면 중앙)",
@@ -893,8 +993,8 @@ class MacroApp(ctk.CTk):
         ).pack(fill="x")
 
         # 클릭 좌표 미세보정 (X, Y 오프셋)
-        ctk.CTkLabel(col1, text="3. 클릭 좌표 미세보정 (상/하 오프셋)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
-        offset_card = ctk.CTkFrame(col1, fg_color="#20202e")
+        ctk.CTkLabel(self.col1_scroll, text="3. 클릭 좌표 미세보정 (상/하 오프셋)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        offset_card = ctk.CTkFrame(self.col1_scroll, fg_color="#20202e")
         offset_card.pack(fill="x", padx=12, pady=4)
 
         y_row = ctk.CTkFrame(offset_card, fg_color="transparent")
@@ -922,9 +1022,9 @@ class MacroApp(ctk.CTk):
             ).pack(side="left", padx=2)
 
         # 전역 옵션
-        ctk.CTkLabel(col1, text="4. 스캔 및 제어", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        ctk.CTkLabel(self.col1_scroll, text="4. 스캔 및 제어", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
         
-        opt_row = ctk.CTkFrame(col1, fg_color="transparent")
+        opt_row = ctk.CTkFrame(self.col1_scroll, fg_color="transparent")
         opt_row.pack(fill="x", padx=12, pady=4)
         ctk.CTkLabel(opt_row, text="스캔 주기 (초):", width=110, anchor="w").pack(side="left")
         self.interval_entry = ctk.CTkEntry(opt_row, width=80)
@@ -932,8 +1032,8 @@ class MacroApp(ctk.CTk):
         self.interval_entry.pack(side="left")
 
         # 5. 화면 연속 탭 (오토클릭)
-        ctk.CTkLabel(col1, text="5. 🔄 화면 연속 탭 (오토클릭)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
-        autotap_card = ctk.CTkFrame(col1, fg_color="#20202e", corner_radius=8)
+        ctk.CTkLabel(self.col1_scroll, text="5. 🔄 화면 연속 탭 (오토클릭)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        autotap_card = ctk.CTkFrame(self.col1_scroll, fg_color="#20202e", corner_radius=8)
         autotap_card.pack(fill="x", padx=12, pady=2)
 
         # 활성화 체크박스
@@ -999,31 +1099,6 @@ class MacroApp(ctk.CTk):
             command=self.reset_autotap_point
         ).pack(side="right")
 
-        # 매크로 시작 / 정지 버튼
-        ctrl_box = ctk.CTkFrame(col1, fg_color="transparent")
-        ctrl_box.pack(fill="x", padx=12, pady=(15, 10))
-
-        self.start_btn = ctk.CTkButton(
-            ctrl_box,
-            text="▶ 매크로 시작",
-            height=44,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
-            command=self.toggle_current_start
-        )
-        self.start_btn.pack(fill="x", pady=(0, 6))
-
-        self.pause_btn = ctk.CTkButton(
-            ctrl_box,
-            text="⏸ 일시정지",
-            state="disabled",
-            fg_color="#f39c12",
-            hover_color="#d68910",
-            command=self.toggle_pause
-        )
-        self.pause_btn.pack(fill="x")
-
         # ==========================================
         # [컬럼 2] 등록된 버튼 관리자 / 비상런 대시보드 (380px)
         # ==========================================
@@ -1059,12 +1134,14 @@ class MacroApp(ctk.CTk):
             command=self.start_file_add
         ).pack(side="left")
 
-        # 타겟 카드 목록 스크롤 프레임
+        # 타겟 카드 목록 스크롤 프레임 (3배속 부드러운 휠 스크롤 적용)
         self.targets_scroll = ctk.CTkScrollableFrame(self.general_target_container)
         self.targets_scroll.pack(fill="both", expand=True, padx=8, pady=4)
+        setup_smooth_scrolling(self.targets_scroll, speed_multiplier=3)
 
-        # [컬럼 2-B: 비상런 대시보드 컨테이너 (비상런 프로필 선택 시 전환)]
-        self.secret_shop_container = ctk.CTkFrame(col2, fg_color="transparent")
+        # [컬럼 2-B: 비상런 대시보드 컨테이너 (스크롤 프레임으로 작은 화면에서도 완벽 지원)]
+        self.secret_shop_container = ctk.CTkScrollableFrame(col2, fg_color="transparent")
+        setup_smooth_scrolling(self.secret_shop_container, speed_multiplier=3)
         self.setup_secret_shop_ui()
 
 
@@ -1077,7 +1154,30 @@ class MacroApp(ctk.CTk):
         monitor_header = ctk.CTkFrame(col3, fg_color="transparent")
         monitor_header.pack(fill="x", padx=12, pady=(12, 4))
         ctk.CTkLabel(monitor_header, text="실시간 감지 화면 (미리보기)", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkButton(monitor_header, text="🔍 1회 감지 테스트", width=120, height=24, fg_color="#34495e", command=self.test_detect_once).pack(side="right")
+
+        # ⚡ 초경량 모드 (미리보기 ON/OFF) 토글 버튼 - CPU 점유율 최소화 및 UI 반응속도 극대화
+        self.preview_toggle_btn = ctk.CTkButton(
+            monitor_header,
+            text="⚡ 초경량 모드 (미리보기 끄기)",
+            width=175,
+            height=26,
+            fg_color="#34495e",
+            hover_color="#2c3e50",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self.toggle_preview_mode
+        )
+        self.preview_toggle_btn.pack(side="right", padx=(6, 0))
+
+        ctk.CTkButton(
+            monitor_header,
+            text="🔍 1회 감지",
+            width=80,
+            height=26,
+            fg_color="#2980b9",
+            hover_color="#1f618d",
+            font=ctk.CTkFont(size=11),
+            command=self.test_detect_once
+        ).pack(side="right")
 
         self.preview_canvas = tk.Canvas(col3, height=360, bg="#111116", highlightthickness=0)
         self.preview_canvas.pack(fill="x", padx=12, pady=4)
@@ -1332,12 +1432,13 @@ class MacroApp(ctk.CTk):
             top_row = ctk.CTkFrame(card, fg_color="transparent")
             top_row.pack(fill="x", padx=8, pady=(8, 4))
 
-            # 썸네일
-            img_rgb = cv2.cvtColor(t.template_img, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(img_rgb)
+            # 썸네일 (OpenCV C++ 고속 리사이즈로 UI 스레드 블로킹 해소)
             thumb_h = 36
-            thumb_w = int(t.w * (thumb_h / t.h))
-            pil_thumb = pil_img.resize((max(1, thumb_w), thumb_h), Image.Resampling.LANCZOS)
+            thumb_w = max(1, int(t.w * (thumb_h / t.h)))
+            interp = cv2.INTER_AREA if (thumb_w < t.w and thumb_h < t.h) else cv2.INTER_LINEAR
+            resized_bgr = cv2.resize(t.template_img, (thumb_w, thumb_h), interpolation=interp)
+            resized_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
+            pil_thumb = Image.fromarray(resized_rgb)
             ctk_thumb = ctk.CTkImage(light_image=pil_thumb, dark_image=pil_thumb, size=(thumb_w, thumb_h))
             self.target_cards[t.id + "_thumb"] = ctk_thumb # 참조 보존
 
@@ -1406,6 +1507,10 @@ class MacroApp(ctk.CTk):
                 command=lambda tid=t.id: self.delete_target_card(tid)
             )
             del_btn.pack(side="right", padx=(4, 0))
+
+        # 새로 생성된 모든 타겟 카드 및 자식 위젯들에 마우스 휠 이벤트 전파 바인딩
+        if hasattr(self.targets_scroll, "bind_children_mousewheel"):
+            self.targets_scroll.bind_children_mousewheel(self.targets_scroll)
 
     def open_pinpoint_dialog(self, target: TargetItem):
         def on_saved(tid, off_x, off_y):
@@ -1548,18 +1653,29 @@ class MacroApp(ctk.CTk):
     # ------------------ 일반 이벤트 핸들러 ------------------
 
     def append_log(self, text: str):
-        def _append():
-            timestamp = time.strftime("[%H:%M:%S] ")
-            self.log_textbox.insert("end", timestamp + text + "\n")
-            # 로그가 500줄을 초과하면 상위 100줄을 정리하여 메모리/UI 리플로우 지연 방지
+        timestamp = time.strftime("[%H:%M:%S] ")
+        self._log_buffer.append(timestamp + text + "\n")
+        if not self._log_flush_scheduled:
+            self._log_flush_scheduled = True
             try:
-                num_lines = int(self.log_textbox.index("end-1c").split(".")[0])
-                if num_lines > 500:
-                    self.log_textbox.delete("1.0", f"{num_lines - 400}.0")
+                self.after(50, self._flush_logs)
             except Exception:
                 pass
+
+    def _flush_logs(self):
+        self._log_flush_scheduled = False
+        if not self._log_buffer or not hasattr(self, "log_textbox"):
+            return
+        batch_text = "".join(self._log_buffer)
+        self._log_buffer.clear()
+        try:
+            self.log_textbox.insert("end", batch_text)
+            num_lines = int(self.log_textbox.index("end-1c").split(".")[0])
+            if num_lines > 500:
+                self.log_textbox.delete("1.0", f"{num_lines - 400}.0")
             self.log_textbox.see("end")
-        self.after(0, _append)
+        except Exception:
+            pass
 
     def clear_log(self):
         self.log_textbox.delete("1.0", "end")
@@ -1639,18 +1755,74 @@ class MacroApp(ctk.CTk):
         else:
             self.append_log("🔍 1회 감지 결과: 화면에서 일치하는 버튼을 찾지 못했습니다.")
 
+    def toggle_preview_mode(self):
+        """실시간 미리보기 ON/OFF 토글 (초경량 모드로 전환 시 캔버스 연산 바이패스로 CPU 점유율 대폭 절감)"""
+        is_on = self.preview_enabled_var.get()
+        if is_on:
+            self.preview_enabled_var.set(False)
+            self.preview_toggle_btn.configure(
+                text="⚡ 미리보기 켜기 (기본 모드)",
+                fg_color="#27ae60",
+                hover_color="#1e8449"
+            )
+            # 캔버스에 저사양 절전 모드 안내 화면 표시
+            self.preview_canvas.delete("all")
+            self._preview_canvas_img_id = None
+            cw = self.preview_canvas.winfo_width() or 480
+            ch = self.preview_canvas.winfo_height() or 320
+            self.preview_canvas.create_text(
+                cw // 2, ch // 2 - 15,
+                text="⚡ 초경량 모드 동작 중",
+                fill="#2ecc71",
+                font=("Malgun Gothic", 14, "bold")
+            )
+            self.preview_canvas.create_text(
+                cw // 2, ch // 2 + 15,
+                text="실시간 화면 렌더링이 중지되어 CPU 점유율 및 UI 반응성이 극대화되었습니다.",
+                fill="#8888aa",
+                font=("Malgun Gothic", 10)
+            )
+            self.append_log("⚡ 초경량 모드 활성화: 화면 미리보기를 일시 중지하여 CPU 부하를 제거했습니다.")
+        else:
+            self.preview_enabled_var.set(True)
+            self.preview_toggle_btn.configure(
+                text="⚡ 초경량 모드 (미리보기 끄기)",
+                fg_color="#34495e",
+                hover_color="#2c3e50"
+            )
+            self.append_log("⚡ 일반 모드 복원: 실시간 화면 미리보기를 다시 활성화했습니다.")
+            if self.last_frame is not None:
+                self.display_screen_preview(self.last_frame)
+
     def on_preview_canvas_resize(self, event):
         """윈도우 리사이즈 시 캔버스 갱신을 30ms 디바운스하여 마우스 드래그 렉을 완벽 차단"""
-        if self.last_frame is not None:
-            if self._canvas_resize_timer is not None:
-                try:
-                    self.after_cancel(self._canvas_resize_timer)
-                except Exception:
-                    pass
-            self._canvas_resize_timer = self.after(30, self._redraw_cached_preview)
+        if self._canvas_resize_timer is not None:
+            try:
+                self.after_cancel(self._canvas_resize_timer)
+            except Exception:
+                pass
+        self._canvas_resize_timer = self.after(30, self._redraw_cached_preview)
 
     def _redraw_cached_preview(self):
         self._canvas_resize_timer = None
+        if not self.preview_enabled_var.get():
+            self.preview_canvas.delete("all")
+            self._preview_canvas_img_id = None
+            cw = self.preview_canvas.winfo_width() or 480
+            ch = self.preview_canvas.winfo_height() or 320
+            self.preview_canvas.create_text(
+                cw // 2, ch // 2 - 15,
+                text="⚡ 초경량 모드 동작 중",
+                fill="#2ecc71",
+                font=("Malgun Gothic", 14, "bold")
+            )
+            self.preview_canvas.create_text(
+                cw // 2, ch // 2 + 15,
+                text="실시간 화면 렌더링이 중지되어 CPU 점유율 및 UI 반응성이 극대화되었습니다.",
+                fill="#8888aa",
+                font=("Malgun Gothic", 10)
+            )
+            return
         if self.last_frame is not None:
             self.display_screen_preview(self.last_frame)
 
@@ -1744,6 +1916,17 @@ class MacroApp(ctk.CTk):
         self._pending_detections = None
 
         self.last_frame = frame
+
+        # 초경량 모드 시 캔버스 렌더링 바이패스 (CPU 점유율 0%대 유지)
+        if not self.preview_enabled_var.get():
+            return
+
+        # 15 FPS 스로틀링 (약 60ms 간격)으로 불필요한 고빈도 GUI 렌더링 방지
+        now = time.time()
+        if now - self._last_preview_render_time < 0.060:
+            return
+        self._last_preview_render_time = now
+
         vis = self.engine.detector.draw_detections(frame, dets) if dets else frame
         self.display_screen_preview(vis)
 
